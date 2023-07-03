@@ -22,11 +22,12 @@ from mlp import MLP
 # import tf
 import transforms3d.euler as euler
 from itertools import accumulate
+from sklearn.model_selection import train_test_split
 
 gamma = 1
 
 
-def compute_traj(sim_data, rho=1, horizon=300, full_state=False):
+def compute_traj(sim_data, rho=1, horizon=20, full_state=False):
     # TODO: full state
 
     # get the reference trajectory
@@ -139,7 +140,7 @@ def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho
                 np.linalg.norm(act[:, :3] - r0[:, :3], axis=1) ** 2
                 + angle_wrap(act[:, 3] - r0[:, 3]) ** 2
             )
-            + 0.1 * np.linalg.norm(input_traj[i]) ** 2
+            + np.linalg.norm(input_traj[i]) ** 2  # Removed 0.1 multiplier
         )
 
     xcost.reverse()
@@ -156,8 +157,10 @@ def angle_wrap(theta):
 
 
 def main():
-    horizon = 300
+    horizon = 20
     rho = 100
+
+    rhos = [0, 1, 5, 10, 20, 50, 100]
     gamma = 1
     # Load bag
     # sim_data = load_bag('/home/anusha/2022-09-27-11-49-40.bag')
@@ -173,7 +176,7 @@ def main():
 
     with open(
         # r"/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/params.yaml"
-        r"/home/mrsl_guest/hanli_ws/src/new_layered_ref_control/src/layered_ref_control/data/params.yaml"
+        r"/home/mrsl_guest/rotorpy/rotorpy/learning/params.yaml"
     ) as f:
         yaml_data = yaml.load(f, Loader=yaml.RoundTripLoader)
 
@@ -212,6 +215,13 @@ def main():
         aug_state[Tstart + 1 : Tend, :].astype("float64"),
     )
 
+    # Split the dataset into training and testing subsets
+    train_data, test_data = train_test_split(
+        train_dataset,
+        test_size=0.2,  # Specify the proportion of the dataset to use for testing (e.g., 0.2 for 20%)
+        random_state=42,  # Set a random seed for reproducibility
+    )
+
     p = aug_state.shape[1]
     q = 4
 
@@ -234,7 +244,7 @@ def main():
     )
 
     train_data_loader = data.DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, collate_fn=numpy_collate
+        train_data, batch_size=batch_size, shuffle=True, collate_fn=numpy_collate
     )
     trained_model_state = train_model(
         model_state, train_data_loader, num_epochs=num_epochs
@@ -289,13 +299,14 @@ def main():
         trained_model_state, train_data_loader, num_epochs=num_epochs
     )
     """
-    # Evaluation of network
+
+    # Evaluation of trained network
 
     eval_model(trained_model_state, train_data_loader, batch_size)
 
     trained_model = model.bind(trained_model_state.params)
     # TODO: save checkpoint
-    # save_checkpoint(trained_model_state, model_save, 7)
+    save_checkpoint(trained_model_state, model_save, 7)
 
     # Save plot on entire test dataset
     out = []
@@ -304,35 +315,46 @@ def main():
         data_input, _, cost, _ = batch
         out.append(trained_model(data_input))
         true.append(cost)
+        # print("Cost", cost)
+        print("Predicted", trained_model(data_input))
 
+    print("out's shape", out[0].shape)
     out = np.vstack(out)
     true = np.vstack(true)
+
+    print(out.shape)
+    print(true.shape)
 
     plt.figure()
     plt.plot(out.ravel(), "b-", label="Predictions")
     plt.plot(true.ravel(), "r--", label="Actual")
+    # plt.plot(out, "b-", label="Predictions")
+    # plt.plot(true, "r--", label="Actual")
     plt.legend()
     plt.title("Predictions of the trained network for different rho")
     # plt.savefig("./plots/inference"+str(rho)+".png")
     plt.show()
 
     """
-    # Inference on bag2
+    # test on 2nd dataset
+    # inf_data = load_bag("/home/anusha/dragonfly2-2023-04-12-12-18-27.bag")
+    # ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(
+    #     inf_data, "dragonfly2", "/home/anusha/min_jerk_times.pkl", rho
+    # )
+    # inf_data.close()
 
-    # inf_data = load_bag('/home/anusha/rho01.bag')
-    # inf_data = load_bag("/home/anusha/IROS_bags/2023-02-27-13-35-15.bag")
-    inf_data = load_bag("/home/anusha/dragonfly2-2023-04-12-12-18-27.bag")
-
-    ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(
-        inf_data, "dragonfly2", "/home/anusha/min_jerk_times.pkl", rho
+    ### Load the csv file here with header
+    inf_data = np.loadtxt(
+        "/home/mrsl_guest/Desktop/dragonfly2.csv", delimiter=",", skiprows=1
     )
-    inf_data.close()
+    # no need times
+    ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(sim_data)
 
-    # Construct augmented states
-    horizon = 300
-    gamma = 1
+    # # Construct augmented states
+    # horizon = 300
+    # gamma = 1
 
-    idx = [0, 1, 2, 12]
+    # idx = [0, 1, 2, 12]
 
     cost_traj = cost_traj.ravel()
 
@@ -362,6 +384,13 @@ def main():
     test_data_loader = data.DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False, collate_fn=numpy_collate
     )
+    """
+    # Evaluation of test and train dataset
+
+    test_data_loader = data.DataLoader(
+        test_data, batch_size=batch_size, shuffle=False, collate_fn=numpy_collate
+    )
+
     eval_model(trained_model_state, test_data_loader, batch_size)
 
     # Save plot on entire test dataset
@@ -382,7 +411,8 @@ def main():
     plt.title("Predictions of the trained network for different rho")
     # plt.savefig("./plots/inference"+str(rho)+".png")
     plt.show()
-    """
+
+    # eval_model(trained_model_state, test_data_loader, batch_size)
 
 
 if __name__ == "__main__":

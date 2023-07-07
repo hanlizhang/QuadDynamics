@@ -138,7 +138,8 @@ def generate(waypoints, ts, order, num_steps, p, rho, vf, coeff0,  num_iter=100,
         #for pp in range(p):
         #    cost += jnp.dot(coeff[pp], cost_mat @ coeff[pp])
         #cost += vf.apply_fn(vf.params, jnp.concatenate([x0, ref]))[0]
-        cost = jnp.exp(vf.apply_fn(vf.params, jnp.concatenate([x0, ref]))[0])
+        #cost = jnp.exp(vf.apply_fn(vf.params, jnp.concatenate([x0, ref]))[0])
+        cost = vf(jnp.append(x0, ref))[0]
         t_cost = cost + util_cost
         return t_cost
 

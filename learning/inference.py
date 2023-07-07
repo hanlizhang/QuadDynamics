@@ -270,7 +270,7 @@ def main():
 
     trained_model_state = restore_checkpoint(model_state, model_save)
 
-    vf = trained_model_state
+    vf = model.bind(trained_model_state.params)
 
     # parameters for lissajous trajectory
 

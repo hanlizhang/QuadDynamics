@@ -168,7 +168,9 @@ def main():
     # sim_data = load_bag("/home/anusha/dragonfly1-2023-04-12-12-18-27.bag")
     ### Load the csv file here with header
     sim_data = np.loadtxt(
-        "/home/mrsl_guest/Desktop/dragonfly1.csv", delimiter=",", skiprows=1
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/0713_3.csv",
+        delimiter=",",
+        skiprows=1,
     )
 
     # no need times
@@ -325,14 +327,33 @@ def main():
     print(out.shape)
     print(true.shape)
 
+    # scatter plot
     plt.figure()
+    plt.scatter(range(len(out)), out.ravel(), color="b", label="Predictions")
+    plt.scatter(range(len(true)), true.ravel(), color="r", label="Actual")
+    plt.xlabel("Trajectory Index")
+    plt.ylabel("Cost")
+    plt.legend()
+    plt.title("Predicted vs Actual - Training Dataset")
+    # plt.savefig("./plots/inference"+str(rho)+".png")
+    plt.show()
+
+    # line plot
+    plt.figure()
+    plt.xlabel("Trajectory Index")
+    plt.ylabel("Cost")
     plt.plot(out.ravel(), "b-", label="Predictions")
     plt.plot(true.ravel(), "r--", label="Actual")
-    # plt.plot(out, "b-", label="Predictions")
-    # plt.plot(true, "r--", label="Actual")
     plt.legend()
-    plt.title("Predictions of the trained network for different rho")
-    # plt.savefig("./plots/inference"+str(rho)+".png")
+    plt.title("Predicted vs Actual - Training Dataset")
+    plt.show()
+
+    # Two boxplots
+    plt.figure()
+    plt.boxplot([out.ravel(), true.ravel()], labels=["Predictions", "Actual"])
+    plt.xlabel("Trajectory Index")
+    plt.ylabel("Cost")
+    plt.title("Predicted vs Actual - Train Dataset")
     plt.show()
 
     """
@@ -404,12 +425,36 @@ def main():
     out = np.vstack(out)
     true = np.vstack(true)
 
+    # scatter plot
     plt.figure()
+    plt.scatter(range(len(out)), out.ravel(), color="b", label="Predictions")
+    plt.scatter(range(len(true)), true.ravel(), color="r", label="Actual")
+    plt.xlabel("Trajectory Index")
+    plt.ylabel("Cost")
+    # plt.plot(out.ravel(), "b-", label="Predictions")
+    # plt.plot(true.ravel(), "r--", label="Actual")
+    plt.legend()
+    plt.title("Predicted vs Actual - Test Dataset")
+    # plt.savefig("./plots/inference"+str(rho)+".png")
+    plt.show()
+
+    # line plot
+    plt.figure()
+    plt.xlabel("Trajectory Index")
+    plt.ylabel("Cost")
     plt.plot(out.ravel(), "b-", label="Predictions")
     plt.plot(true.ravel(), "r--", label="Actual")
     plt.legend()
-    plt.title("Predictions of the trained network for different rho")
+    plt.title("Predicted vs Actual - Test Dataset")
     # plt.savefig("./plots/inference"+str(rho)+".png")
+    plt.show()
+
+    # Two boxplots
+    plt.figure()
+    plt.boxplot([out.ravel(), true.ravel()], labels=["Predictions", "Actual"])
+    plt.xlabel("Trajectory Index")
+    plt.ylabel("Cost")
+    plt.title("Predicted vs Actual - Test Dataset")
     plt.show()
 
     # eval_model(trained_model_state, test_data_loader, batch_size)

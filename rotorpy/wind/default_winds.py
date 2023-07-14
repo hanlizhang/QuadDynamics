@@ -5,59 +5,65 @@ import sys
 Below are some default wind objects that might be useful inputs to the system.  
 """
 
+
 class NoWind(object):
     """
-    This wind profile is the trivial case of no wind. It will output 
-    zero wind speed on all axes for all time. 
-    Alternatively, you can use ConstantWind with wx=wy=wz=0. 
+    This wind profile is the trivial case of no wind. It will output
+    zero wind speed on all axes for all time.
+    Alternatively, you can use ConstantWind with wx=wy=wz=0.
     """
 
     def __init__(self):
         """
-        Inputs: 
+        Inputs:
             Nothing
         """
 
     def update(self, t, position):
         """
         Given the present time and position of the multirotor, return the
-        current wind speed on all three axes. 
-        
-        The wind should be expressed in the world coordinates. 
+        current wind speed on all three axes.
+
+        The wind should be expressed in the world coordinates.
         """
-        return np.array([0,0,0])
+        return np.array([0, 0, 0])
+
 
 class ConstantWind(object):
     """
-    This wind profile is constant both spatially and temporally. 
-    Wind speed is specified on each axis. 
+    This wind profile is constant both spatially and temporally.
+    Wind speed is specified on each axis.
     """
 
     def __init__(self, wx, wy, wz):
-        """
-        """
+        """ """
 
         self.wind = np.array([wx, wy, wz])
 
-        
     def update(self, t, position):
         """
         Given the present time and position of the multirotor, return the
-        current wind speed on all three axes. 
-        
-        The wind should be expressed in the world coordinates. 
+        current wind speed on all three axes.
+
+        The wind should be expressed in the world coordinates.
         """
 
         return self.wind
+
 
 class SinusoidWind(object):
     """
     Wind will vary subject to a sine function with appropriate amplitude, frequency, and phase offset.
     """
 
-    def __init__(self, amplitudes=np.array([1,1,1]), frequencies=np.array([1,1,1]), phase=np.array([0,0,0])):
+    def __init__(
+        self,
+        amplitudes=np.array([4, 4, 4]),
+        frequencies=np.array([1, 1, 1]),
+        phase=np.array([0, 0, 0]),
+    ):
         """
-        Inputs: 
+        Inputs:
             amplitudes := array of amplitudes on each axis
             frequencies := array of frequencies for the wind pattern on each axis
             phase := relative phase offset on each axis in seconds
@@ -69,20 +75,25 @@ class SinusoidWind(object):
     def update(self, t, position):
         """
         Given the present time and position of the multirotor, return the
-        current wind speed on all three axes. 
-        
-        The wind should be expressed in the world coordinates. 
+        current wind speed on all three axes.
+
+        The wind should be expressed in the world coordinates.
         """
 
-        wind = np.array([self.Ax*np.sin(2*np.pi*self.fx*(t+self.px)),
-                         self.Ay*np.sin(2*np.pi*self.fy*(t+self.py)),
-                         self.Az*np.sin(2*np.pi*self.fz*(t+self.pz))])
+        wind = np.array(
+            [
+                self.Ax * np.sin(2 * np.pi * self.fx * (t + self.px)),
+                self.Ay * np.sin(2 * np.pi * self.fy * (t + self.py)),
+                self.Az * np.sin(2 * np.pi * self.fz * (t + self.pz)),
+            ]
+        )
 
         return wind
 
+
 class LadderWind(object):
     """
-    The wind will step up and down between a minimum and maximum speed for a specified duration. 
+    The wind will step up and down between a minimum and maximum speed for a specified duration.
     Visualized below...
 
                      | | <- duration
@@ -91,13 +102,20 @@ class LadderWind(object):
                ---         ---
      min -> ---         ---
             --------------------------> t
-    
-    ** Normally the wind will start at min and increase sequentially, but if the random flag is set true, 
-       the wind will step to a random sublevel after each duration is up. 
+
+    ** Normally the wind will start at min and increase sequentially, but if the random flag is set true,
+       the wind will step to a random sublevel after each duration is up.
 
     """
 
-    def __init__(self, min=np.array([-1,-1,-1]), max=np.array([1,1,1]), duration=np.array([1,1,1]), Nstep=np.array([5,5,5]), random_flag=False):
+    def __init__(
+        self,
+        min=np.array([-1, -1, -1]),
+        max=np.array([1, 1, 1]),
+        duration=np.array([1, 1, 1]),
+        Nstep=np.array([5, 5, 5]),
+        random_flag=False,
+    ):
         """
         Inputs:
             min := array of minimum wind speeds across each axis
@@ -108,7 +126,9 @@ class LadderWind(object):
 
         # Check the inputs for consistency, quit and raise a flag if the inputs aren't physically realizable
         if np.any(Nstep <= 0):
-            print("LadderWind Error: The number of steps must be greater than or equal to 1")
+            print(
+                "LadderWind Error: The number of steps must be greater than or equal to 1"
+            )
             sys.exit(1)
 
         if np.any(max - min < 0):
@@ -138,18 +158,22 @@ class LadderWind(object):
         self.timerz = None
 
         # Initialize the winds
-        self.wx, self.wy, self.wz = self.wx_arr[self.xid], self.wy_arr[self.yid], self.wz_arr[self.zid]
+        self.wx, self.wy, self.wz = (
+            self.wx_arr[self.xid],
+            self.wy_arr[self.yid],
+            self.wz_arr[self.zid],
+        )
 
     def update(self, t, position):
         """
         Given the present time and position of the multirotor, return the
-        current wind speed on all three axes. 
-        
-        The wind should be expressed in the world coordinates. 
+        current wind speed on all three axes.
+
+        The wind should be expressed in the world coordinates.
         """
         if self.timerx is None:
             self.timerx, self.timery, self.timerz = t, t, t
-        
+
         if (t - self.timerx) >= self.durx:
             if self.random_flag:
                 self.xid = np.random.choice(self.nx)
@@ -175,7 +199,8 @@ class LadderWind(object):
             self.timerz = t
 
         return np.array([self.wx, self.wy, self.wz])
-    
-if __name__=="__main__":
-    wind = ConstantWind(wx=1,wy=1,wz=1)
-    print(wind.update(0,np.array([0,0,0])))
+
+
+if __name__ == "__main__":
+    wind = ConstantWind(wx=1, wy=1, wz=1)
+    print(wind.update(0, np.array([0, 0, 0])))

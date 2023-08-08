@@ -10,7 +10,7 @@ import rospy
 import numpy as np
 import random
 
-from trajgen import quadratic, nonlinear_jax
+from trajgen import quadratic, nonlinear_jax, nonlinear, valuefunc
 
 
 import torch
@@ -21,7 +21,7 @@ import ruamel.yaml as yaml
 from flax.training import train_state
 import optax
 import jax
-from mlp import MLP
+from mlp import MLP, MLP_torch
 from model_learning import restore_checkpoint
 
 
@@ -168,6 +168,36 @@ def generate_polynomial_trajectory(start, end, T, order):
     return coeffs
 
 
+def load_torch_model(trained_model_state):
+    # Load checkpoint
+    weights = trained_model_state.params['params']
+
+    # Store weights of the network
+    hidden_wts = [
+        [weights['linear_0']['kernel'], weights['linear_0']['bias']],
+        [weights['linear_1']['kernel'], weights['linear_1']['bias']],
+        [weights['linear_2']['kernel'], weights['linear_2']['bias']],
+    ]
+    linear2_wts = [weights['linear2']['kernel'], weights['linear2']['bias']]
+
+    def convert_torch(x):
+        print(x.shape)
+        return torch.from_numpy(np.array(x))
+
+    # Create network
+    inp_size = 1204
+    num_hidden = [500, 400, 200]
+    mlp_t = MLP_torch(inp_size, num_hidden)
+
+    for i in range(3):
+        mlp_t.hidden[i].weight.data = convert_torch(hidden_wts[i][0]).T
+        mlp_t.hidden[i].bias.data = convert_torch(hidden_wts[i][1])
+
+    mlp_t.linear2.weight.data = convert_torch(linear2_wts[0]).T
+    mlp_t.linear2.bias.data = convert_torch(linear2_wts[1])
+    return mlp_t
+
+
 def simple_replan(selected_waypoints, duration, order, p, vf, rho, idx):
     """
     Function to generate a new trajectory using the selected waypoints
@@ -194,7 +224,7 @@ def simple_replan(selected_waypoints, duration, order, p, vf, rho, idx):
     # nn_coeff = quadrotor.generate(torch.tensor(selected_waypoints.T), ts, order, duration * 100, p, rho, vf, torch.tensor(new_traj_coeffs),
     #                              num_iter=150, lr=0.0001)
 
-    nn_coeffs = nonlinear_jax.generate(selected_waypoints, ts, order, duration * 100, p, rho, vf, min_jerk_coeffs,
+    nn_coeffs = nonlinear.generate(selected_waypoints, ts, order, duration * 100, p, rho, vf, min_jerk_coeffs,
                                        num_iter=100, lr=0.001)
 
     # nn_coeff = nonlinear_jax.generate(selected_waypoints, ts, order, duration * 100, p, rho, vf, new_traj_coeffs,
@@ -270,7 +300,15 @@ def main():
 
     trained_model_state = restore_checkpoint(model_state, model_save)
 
-    vf = model.bind(trained_model_state.params)
+    mlp_t = load_torch_model(trained_model_state)
+
+    print(mlp_t)
+
+    vf = valuefunc.MLPValueFunc(mlp_t)
+
+    vf.network = mlp_t
+
+    #vf = model.bind(trained_model_state.params)
 
     # parameters for lissajous trajectory
 

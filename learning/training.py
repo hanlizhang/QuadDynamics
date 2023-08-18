@@ -27,7 +27,7 @@ from sklearn.model_selection import train_test_split
 gamma = 1
 
 
-def compute_traj(sim_data, rho=1, horizon=20, full_state=False):
+def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
     # TODO: full state
 
     # get the reference trajectory
@@ -48,6 +48,8 @@ def compute_traj(sim_data, rho=1, horizon=20, full_state=False):
     actual_traj_z = sim_data[:, 4]
     # col I-L quaternion
     actual_traj_quat = sim_data[:, 8:12]
+    # quat2euler takes a 4 element sequence: w, x, y, z of quaternion
+    actual_traj_quat = np.hstack((actual_traj_quat[:, 3:4], actual_traj_quat[:, 0:3]))
     # (cur_roll, cur_pitch, cur_yaw) = tf.transformations.euler_from_quaternion(actual_traj_quat)
     # 4 element sequence: w, x, y, z of quaternion
     # print("actual_traj_quat's shape: ", actual_traj_quat.shape)
@@ -98,7 +100,9 @@ def compute_traj(sim_data, rho=1, horizon=20, full_state=False):
     input_traj = np.hstack((input_traj_thrust.reshape(-1, 1), input_traj_ang_vel))
     """
 
-    input_traj = np.hstack((input_traj_thrust.reshape(-1, 1), odom_ang_vel))
+    # input_traj = np.hstack((input_traj_thrust.reshape(-1, 1), odom_ang_vel))
+    # input_traj is sum of squares of motor speeds for 4 individual motors, col STUV
+    input_traj = sim_data[:, 18:22]
 
     # debug: print the first 10 input_traj
     print("input_traj: ", input_traj[:10, :])
@@ -134,13 +138,19 @@ def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho
         r0 = np.append(r0, r0[-1, :] * np.ones((N - 1, n)))
         r0 = np.reshape(r0, (horizon + N - 1, n))
 
+        # print("delta yaw: ", act[:, 3] - r0[:, 3])
+        # print("angle_wrap: ", angle_wrap(act[:, 3] - r0[:, 3]))
+        # print("yaw cost: ", angle_wrap(act[:, 3] - r0[:, 3]))
         xcost.append(
             rho
             * (
                 np.linalg.norm(act[:, :3] - r0[:, :3], axis=1) ** 2
                 + angle_wrap(act[:, 3] - r0[:, 3]) ** 2
+                # ignore the yaw error
             )
-            + np.linalg.norm(input_traj[i]) ** 2  # Removed 0.1 multiplier
+            # input_traj cost is sum of squares of motor speeds for 4 individual motors
+            + np.linalg.norm(input_traj[i]) * 0.0001
+            # + np.linalg.norm(input_traj[i]) ** 2  # Removed 0.1 multiplier
         )
 
     xcost.reverse()
@@ -148,6 +158,7 @@ def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho
     for i in range(num_traj):
         tot = list(accumulate(xcost[i], lambda x, y: x * gamma + y))
         cost.append(np.log(tot[-1]))
+        # cost.append(tot[-1])
     cost.reverse()
     return np.vstack(cost)
 
@@ -157,7 +168,7 @@ def angle_wrap(theta):
 
 
 def main():
-    horizon = 20
+    horizon = 502
     rho = 100
 
     rhos = [0, 1, 5, 10, 20, 50, 100]
@@ -168,13 +179,15 @@ def main():
     # sim_data = load_bag("/home/anusha/dragonfly1-2023-04-12-12-18-27.bag")
     ### Load the csv file here with header
     sim_data = np.loadtxt(
-        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/0713_3.csv",
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/constwind_1_1000_noyaw.csv",
         delimiter=",",
         skiprows=1,
     )
 
     # no need times
-    ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(sim_data)
+    ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(
+        sim_data=sim_data, horizon=horizon
+    )
 
     with open(
         # r"/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/params.yaml"
@@ -192,9 +205,38 @@ def main():
 
     cost_traj = cost_traj.ravel()
 
-    print("Costs", cost_traj)
+    # print("Costs", cost_traj)
+    print("Costs shape", cost_traj.shape)
+
+    # plot the cost_traj(y) vs different radius(x), there're 10 trajectories with radius ranging from 2 to 5
+    # each trajectory has 1002 points
+    # scatter plot
+
+    radius = np.linspace(1, 10, 1000)
+    plt.scatter(radius, cost_traj)
+    plt.title("Cost vs Radius for wind speed 1")
+    plt.xlabel("Radius")
+    plt.ylabel("Cost")
+
+    # x axis range from 0 to 12, y axis range from 0 to 500
+    # plt.axis([0, 12, 0, 500])
+    # plt.plot(radius, cost_traj)
+    """
+    # trajs index 1 to 10
+    traj = np.linspace(1, 10, 10)
+    # x should be int
+    traj = [int(x) for x in traj]
+
+    plt.scatter(traj, cost_traj)
+    plt.title("Cost for Trajectories with Radius of 5 and Wind Speed of 1")
+    plt.xlabel("Traj index")
+    plt.ylabel("Cost")
+    """
+    plt.show()
 
     num_traj = int(len(ref_traj) / horizon)
+    print("len(ref_traj): ", len(ref_traj))
+    print("num_traj: ", num_traj)
 
     # Create augmented state
 
@@ -224,6 +266,9 @@ def main():
         random_state=42,  # Set a random seed for reproducibility
     )
 
+    print("Training data length: ", len(train_data))
+    print("Testing data length: ", len(test_data))
+
     p = aug_state.shape[1]
     q = 4
 
@@ -240,6 +285,7 @@ def main():
     params = model.init(init_rng, inp)
 
     optimizer = optax.sgd(learning_rate=learning_rate, momentum=0.9)
+    # optimizer = optax.adam(learning_rate=learning_rate, b1=0.9, b2=0.999, eps=1e-08)
 
     model_state = train_state.TrainState.create(
         apply_fn=model.apply, params=params, tx=optimizer
@@ -318,14 +364,11 @@ def main():
         out.append(trained_model(data_input))
         true.append(cost)
         # print("Cost", cost)
-        print("Predicted", trained_model(data_input))
+        # print("Predicted", trained_model(data_input))
 
     print("out's shape", out[0].shape)
     out = np.vstack(out)
     true = np.vstack(true)
-
-    print(out.shape)
-    print(true.shape)
 
     # scatter plot
     plt.figure()
@@ -336,6 +379,36 @@ def main():
     plt.legend()
     plt.title("Predicted vs Actual - Training Dataset")
     # plt.savefig("./plots/inference"+str(rho)+".png")
+    plt.show()
+    # plt.figure()
+    # plt.scatter(range(len(out)), out.ravel(), color="b", label="Predictions")
+    # plt.scatter(range(len(true)), true.ravel(), color="r", label="Actual")
+    # plt.xlabel("Trajectory Index")
+    # plt.ylabel("Cost")
+    # plt.legend()
+    # plt.title("Predicted vs Actual - Training Dataset")
+    # # Set the y-axis range from 0 to 12
+    # plt.ylim(0, 12)
+    # # plt.savefig("./plots/inference"+str(rho)+".png")
+    # plt.show()
+
+    # scatter plot
+    # plt.figure()
+    # plt.scatter(range(len(true)), true.ravel(), color="r", label="Actual")
+    # plt.xlabel("Trajectory Index")
+    # plt.ylabel("Cost")
+    # plt.legend()
+    # plt.title("Actual - Training Dataset")
+    # # plt.savefig("./plots/inference"+str(rho)+".png")
+    # plt.show()
+    plt.figure()
+    plt.scatter(range(len(true)), true.ravel(), color="r", label="Actual")
+    plt.xlabel("Trajectory Index")
+    plt.ylabel("Cost")
+    plt.legend()
+    plt.title("Actual - Training Dataset")
+    # Set the y-axis range from 0 to 500
+    plt.ylim(0, 800)
     plt.show()
 
     # line plot
@@ -355,7 +428,6 @@ def main():
     plt.ylabel("Cost")
     plt.title("Predicted vs Actual - Train Dataset")
     plt.show()
-
     """
     # test on 2nd dataset
     # inf_data = load_bag("/home/anusha/dragonfly2-2023-04-12-12-18-27.bag")
@@ -369,7 +441,9 @@ def main():
         "/home/mrsl_guest/Desktop/dragonfly2.csv", delimiter=",", skiprows=1
     )
     # no need times
-    ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(sim_data)
+    ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(
+        sim_data, 1, horizon, False
+    )
 
     # # Construct augmented states
     # horizon = 300
@@ -425,6 +499,9 @@ def main():
     out = np.vstack(out)
     true = np.vstack(true)
 
+    print(out.shape)
+    print(true.shape)
+
     # scatter plot
     plt.figure()
     plt.scatter(range(len(out)), out.ravel(), color="b", label="Predictions")
@@ -438,16 +515,16 @@ def main():
     # plt.savefig("./plots/inference"+str(rho)+".png")
     plt.show()
 
-    # line plot
-    plt.figure()
-    plt.xlabel("Trajectory Index")
-    plt.ylabel("Cost")
-    plt.plot(out.ravel(), "b-", label="Predictions")
-    plt.plot(true.ravel(), "r--", label="Actual")
-    plt.legend()
-    plt.title("Predicted vs Actual - Test Dataset")
-    # plt.savefig("./plots/inference"+str(rho)+".png")
-    plt.show()
+    # # line plot
+    # plt.figure()
+    # plt.xlabel("Trajectory Index")
+    # plt.ylabel("Cost")
+    # plt.plot(out.ravel(), "b-", label="Predictions")
+    # plt.plot(true.ravel(), "r--", label="Actual")
+    # plt.legend()
+    # plt.title("Predicted vs Actual - Test Dataset")
+    # # plt.savefig("./plots/inference"+str(rho)+".png")
+    # plt.show()
 
     # Two boxplots
     plt.figure()

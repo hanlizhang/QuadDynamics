@@ -9,7 +9,6 @@ from rotorpy.environments import Environment
 from rotorpy.vehicles.multirotor import Multirotor
 
 # from rotorpy.vehicles.crazyflie_params import quad_params
-
 from rotorpy.vehicles.hummingbird_params import (
     quad_params,
 )  # There's also the Hummingbird
@@ -18,8 +17,6 @@ from rotorpy.vehicles.hummingbird_params import (
 from rotorpy.controllers.quadrotor_control import SE3Control
 
 # And a trajectory generator
-from rotorpy.trajectories.heart_traj import HeartTrajectory
-from rotorpy.trajectories.polynomial_traj import Polynomial
 from rotorpy.trajectories.hover_traj import HoverTraj
 from rotorpy.trajectories.circular_traj import CircularTraj, ThreeDCircularTraj
 from rotorpy.trajectories.lissajous_traj import TwoDLissajous
@@ -41,9 +38,6 @@ from rotorpy.estimators.wind_ukf import WindUKF
 # Also, worlds are how we construct obstacles. The following class contains methods related to constructing these maps.
 from rotorpy.world import World
 
-# Compute the body rate
-from learning.compute_body_rate import *
-
 # Reference the files above for more documentation.
 
 # Other useful imports
@@ -61,38 +55,32 @@ Instantiation
 # Obstacle maps can be loaded in from a JSON file using the World.from_file(path) method. Here we are loading in from
 # an existing file under the rotorpy/worlds/ directory. However, you can create your own world by following the template
 # provided (see rotorpy/worlds/README.md), and load that file anywhere using the appropriate path.
-world = World.from_file(
-    os.path.abspath(
-        os.path.join(
-            os.path.dirname(__file__), "..", "rotorpy", "worlds", "double_pillar.json"
-        )
-    )
-)
-
-circular_traj = CircularTraj(radius=2.5)
+# world = World.from_file(os.path.abspath(os.path.join(os.path.dirname(__file__),'..','rotorpy','worlds','double_pillar.json')))
 
 # "world" is an optional argument. If you don't load a world it'll just provide an empty playground!
 
+quad_params[
+    "motor_noise_std"
+] = 0  # if you would like to turn off random noise injected to the motors.
+# quad_params["rotor_speed_max"] = 10000
+# quad_params["rotor_speed_min"] = -10000
+# quad_params["tau_m"] = 0.005
+quad = Multirotor(quad_params)
+control = SE3Control(quad_params)
+traj = CircularTraj(radius=2, freq=0.4, yaw_bool=True)
+wind = NoWind()
+
 # An instance of the simulator can be generated as follows:
 sim_instance = Environment(
-    vehicle=Multirotor(quad_params),  # vehicle object, must be specified.
-    controller=SE3Control(quad_params),  # controller object, must be specified.
-    trajectory=circular_traj,
-    # trajectory=CircularTraj(radius=2.5),  # trajectory object, must be specified.
-    # trajectory=HeartTrajectory(scale=0.2),
-    # trajectory=HeartTrajectory(scale=0.3),
-    # trajectory=TwoDLissajous(A=2, B=2, a=1, b=2, delta=0, height=2),
-    # trajectory=TwoDLissajous(A=3, B=3, a=0.5, b=1, delta=0, height=2),
-    # wind_profile=DrydenGustLP(
-    #     dt=1 / 100, avg_wind=[0, 0, 0], sig_wind=[5, 5, 5], tau=1
-    # ),  # OPTIONAL: wind profile object, if none is supplied it will choose no wind.
-    wind_profile=ConstantWind(1, 1, 1),
-    sim_rate=100,  # OPTIONAL: The update frequency of the simulator in Hz. Default is 100 Hz.
+    vehicle=quad,  # vehicle object, must be specified.
+    controller=control,  # controller object, must be specified.
+    trajectory=traj,  # trajectory object, must be specified.
+    wind_profile=wind,  # OPTIONAL: wind profile object, if none is supplied it will choose no wind.
+    sim_rate=500,  # OPTIONAL: The update frequency of the simulator in Hz. Default is 100 Hz.
     imu=None,  # OPTIONAL: imu sensor object, if none is supplied it will choose a default IMU sensor.
     mocap=None,  # OPTIONAL: mocap sensor object, if none is supplied it will choose a default mocap.
     estimator=None,  # OPTIONAL: estimator object
-    world=None,
-    # world=world,  # OPTIONAL: the world, same name as the file in rotorpy/worlds/, default (None) is empty world
+    world=None,  # OPTIONAL: the world, same name as the file in rotorpy/worlds/, default (None) is empty world
     safety_margin=0.25,  # OPTIONAL: defines the radius (in meters) of the sphere used for collision checking
 )
 
@@ -106,22 +94,13 @@ Execution
 
 # Setting an initial state. This is optional, and the state representation depends on the vehicle used.
 # Generally, vehicle objects should have an "initial_state" attribute.
-x = circular_traj.update(0)
-print(x)
-flat_output = x
-state = {
-    "x": x["x"],
-    "v": x["x_dot"],
-    "q": np.array([0, 0, 0, 1]),  # [i,j,k,w]
-    "w": np.zeros(3),
-}
-control_input = sim_instance.controller.update(
-    t=0, state=state, flat_output=flat_output
-)
-print(control_input)
+
+# Solve for the commanded rotorspeeds in hover using the vehicle parameters.
+cmd_hover_speeds = np.sqrt(quad.mass * quad.g / (quad.num_rotors * quad.k_eta))
+flat_init = traj.update(0)
 x0 = {
-    "x": x["x"],
-    "v": x["x_dot"],
+    "x": flat_init["x"],
+    "v": flat_init["x_dot"],
     "q": np.array([0, 0, 0, 1]),  # [i,j,k,w]
     "w": np.zeros(
         3,
@@ -129,7 +108,7 @@ x0 = {
     "wind": np.array(
         [0, 0, 0]
     ),  # Since wind is handled elsewhere, this value is overwritten
-    "rotor_speeds": control_input["cmd_motor_speeds"],
+    "rotor_speeds": np.ones(quad.num_rotors) * cmd_hover_speeds,
 }
 sim_instance.vehicle.initial_state = x0
 
@@ -138,18 +117,17 @@ sim_instance.vehicle.initial_state = x0
 # You can save the animation (if animating) using the fname argument. Default is None which won't save it.
 
 results = sim_instance.run(
-    t_final=5,  # The maximum duration of the environment in seconds
+    t_final=20,  # The maximum duration of the environment in seconds
     use_mocap=False,  # Boolean: determines if the controller should use the motion capture estimates.
     terminate=False,  # Boolean: if this is true, the simulator will terminate when it reaches the last waypoint.
     plot=True,  # Boolean: plots the vehicle states and commands
-    plot_mocap=False,  # Boolean: plots the motion capture pose and twist measurements
-    plot_estimator=False,  # Boolean: plots the estimator filter states and covariance diagonal elements
-    plot_imu=False,  # Boolean: plots the IMU measurements
+    plot_mocap=True,  # Boolean: plots the motion capture pose and twist measurements
+    plot_estimator=True,  # Boolean: plots the estimator filter states and covariance diagonal elements
+    plot_imu=True,  # Boolean: plots the IMU measurements
     animate_bool=True,  # Boolean: determines if the animation of vehicle state will play.
-    animate_wind=True,  # Boolean: determines if the animation will include a scaled wind vector to indicate the local wind acting on the UAV.
+    animate_wind=False,  # Boolean: determines if the animation will include a scaled wind vector to indicate the local wind acting on the UAV.
     verbose=True,  # Boolean: will print statistics regarding the simulation.
-    fname="50hz.mp4",  # String: determines the frame of reference for the animation. Options are "world", "body", and "NED". Default is "world".
-    # fname="const2_heart3.mp4",  # Filename is specified if you want to save the animation. The save location is rotorpy/data_out/.
+    fname=None,  # Filename is specified if you want to save the animation. The save location is rotorpy/data_out/.
 )
 
 # There are booleans for if you want to plot all/some of the results, animate the multirotor, and
@@ -158,7 +136,7 @@ results = sim_instance.run(
 
 # To save this data as a .csv file, you can use the environment's built in save method. You must provide a filename.
 # The save location is rotorpy/data_out/
-sim_instance.save_to_csv("const1_circle2_5_5.csv")
+sim_instance.save_to_csv("basic_usage.csv")
 
 # Instead of producing a CSV, you can manually unpack the dictionary into a Pandas DataFrame using the following:
 from rotorpy.utils.postprocessing import unpack_sim_data

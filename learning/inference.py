@@ -28,8 +28,18 @@ from model_learning import restore_checkpoint
 PI = np.pi
 
 
-def generate_lissajous_traj(s, x_num_periods, y_num_periods, z_num_periods, yaw_num_periods, period, x_amp, y_amp,
-                            z_amp, yaw_amp):
+def generate_lissajous_traj(
+    s,
+    x_num_periods,
+    y_num_periods,
+    z_num_periods,
+    yaw_num_periods,
+    period,
+    x_amp,
+    y_amp,
+    z_amp,
+    yaw_amp,
+):
     """
     Function to generate Lissajous trajectory
     :return:
@@ -51,7 +61,7 @@ def compute_coeff_deriv(coeff, n, segments):
         for j in range(n):  # Compute nth derivative of polynomial
             t = np.poly1d(coeff_new[i, :]).deriv()
             coeff_new[i, j] = 0
-            coeff_new[i, j + 1:] = t.coefficients
+            coeff_new[i, j + 1 :] = t.coefficients
     return coeff_new
 
 
@@ -64,7 +74,8 @@ def sampler(poly, T, ts):
     k = 0
     ref = []
     for i, tt in enumerate(np.linspace(ts[0], ts[-1], T)):
-        if tt > ts[k + 1]: k += 1
+        if tt > ts[k + 1]:
+            k += 1
         ref.append(poly[k](tt - ts[k]))
     return ref
 
@@ -142,7 +153,14 @@ def compute_pos_vel_acc(Tref, nn_coeffs, segments, ts):
     yawdot_ref = [np.poly1d(dot_yaw[i, :]) for i in range(segments)]
     yawdot_ref = np.vstack(sampler(yawdot_ref, Tref, ts)).flatten()
 
-    return np.vstack(pos), np.vstack(vel), np.vstack(acc), np.vstack(jerk), yaw_ref, yawdot_ref
+    return (
+        np.vstack(pos),
+        np.vstack(vel),
+        np.vstack(acc),
+        np.vstack(jerk),
+        yaw_ref,
+        yawdot_ref,
+    )
 
 
 def generate_polynomial_trajectory(start, end, T, order):
@@ -170,15 +188,15 @@ def generate_polynomial_trajectory(start, end, T, order):
 
 def load_torch_model(trained_model_state):
     # Load checkpoint
-    weights = trained_model_state.params['params']
+    weights = trained_model_state.params["params"]
 
     # Store weights of the network
     hidden_wts = [
-        [weights['linear_0']['kernel'], weights['linear_0']['bias']],
-        [weights['linear_1']['kernel'], weights['linear_1']['bias']],
-        [weights['linear_2']['kernel'], weights['linear_2']['bias']],
+        [weights["linear_0"]["kernel"], weights["linear_0"]["bias"]],
+        [weights["linear_1"]["kernel"], weights["linear_1"]["bias"]],
+        [weights["linear_2"]["kernel"], weights["linear_2"]["bias"]],
     ]
-    linear2_wts = [weights['linear2']['kernel'], weights['linear2']['bias']]
+    linear2_wts = [weights["linear2"]["kernel"], weights["linear2"]["bias"]]
 
     def convert_torch(x):
         print(x.shape)
@@ -207,13 +225,16 @@ def simple_replan(selected_waypoints, duration, order, p, vf, rho, idx):
     ts = np.linspace(0, duration, selected_waypoints.shape[0])
 
     # Generate the new trajectory using the concatenated waypoints
-    _, min_jerk_coeffs = quadratic.generate(selected_waypoints, ts, order, duration * 100, p, None, 0)
+    _, min_jerk_coeffs = quadratic.generate(
+        selected_waypoints, ts, order, duration * 100, p, None, 0
+    )
     new_traj_coeffs = np.zeros([p, len(selected_waypoints) - 1, order + 1])
 
     for k in range(p):
         for j in range(len(selected_waypoints) - 1):
-            new_traj_coeffs[k, j, :] = generate_polynomial_trajectory(selected_waypoints.T[k, j],
-                                                                      selected_waypoints.T[k, j + 1], 100, order)
+            new_traj_coeffs[k, j, :] = generate_polynomial_trajectory(
+                selected_waypoints.T[k, j], selected_waypoints.T[k, j + 1], 100, order
+            )
 
     print("new_traj_coeffs' shape: ", new_traj_coeffs.shape)
 
@@ -224,8 +245,18 @@ def simple_replan(selected_waypoints, duration, order, p, vf, rho, idx):
     # nn_coeff = quadrotor.generate(torch.tensor(selected_waypoints.T), ts, order, duration * 100, p, rho, vf, torch.tensor(new_traj_coeffs),
     #                              num_iter=150, lr=0.0001)
 
-    nn_coeffs = nonlinear.generate(selected_waypoints, ts, order, duration * 100, p, rho, vf, min_jerk_coeffs,
-                                       num_iter=100, lr=0.001)
+    nn_coeffs = nonlinear.generate(
+        selected_waypoints,
+        ts,
+        order,
+        duration * 100,
+        p,
+        rho,
+        vf,
+        min_jerk_coeffs,
+        num_iter=100,
+        lr=0.001,
+    )
 
     # nn_coeff = nonlinear_jax.generate(selected_waypoints, ts, order, duration * 100, p, rho, vf, new_traj_coeffs,
     #                                  num_iter=100, lr=0.001)
@@ -248,7 +279,7 @@ def save_object(obj, filename):
     :param filename:
     :return:
     """
-    with open(filename, 'wb') as outp:  # Overwrites any existing file.
+    with open(filename, "wb") as outp:  # Overwrites any existing file.
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
 
 
@@ -258,12 +289,11 @@ def load_object(str):
     :param str:
     :return:
     """
-    with open(str, 'rb') as handle:
+    with open(str, "rb") as handle:
         return pickle.load(handle)
 
 
 def main():
-
     # Define the lists to keep track of times for the simulations
     times_nn = []
     times_mj = []
@@ -272,12 +302,16 @@ def main():
     # Initialize neural network
     rho = 1
 
-    with open(r"/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/params.yaml") as f:
+    # with open(
+    #     r"/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/params.yaml"
+    # ) as f:
+    #     yaml_data = yaml.load(f, Loader=yaml.RoundTripLoader)
+    with open(r"/home/mrsl_guest/rotorpy/rotorpy/learning/params.yaml") as f:
         yaml_data = yaml.load(f, Loader=yaml.RoundTripLoader)
 
-    num_hidden = yaml_data['num_hidden']
-    batch_size = yaml_data['batch_size']
-    learning_rate = yaml_data['learning_rate']
+    num_hidden = yaml_data["num_hidden"]
+    batch_size = yaml_data["batch_size"]
+    learning_rate = yaml_data["learning_rate"]
 
     # Load the trained model
     model = MLP(num_hidden=num_hidden, num_outputs=1)
@@ -292,11 +326,11 @@ def main():
 
     optimizer = optax.sgd(learning_rate=learning_rate, momentum=0.9)
 
-    model_state = train_state.TrainState.create(apply_fn=model.apply,
-                                                params=params,
-                                                tx=optimizer)
+    model_state = train_state.TrainState.create(
+        apply_fn=model.apply, params=params, tx=optimizer
+    )
 
-    model_save = yaml_data['save_path'] + str(rho)
+    model_save = yaml_data["save_path"] + str(rho)
 
     trained_model_state = restore_checkpoint(model_state, model_save)
 
@@ -308,7 +342,7 @@ def main():
 
     vf.network = mlp_t
 
-    #vf = model.bind(trained_model_state.params)
+    # vf = model.bind(trained_model_state.params)
 
     # parameters for lissajous trajectory
 
@@ -335,8 +369,18 @@ def main():
     duration = 3  # Duration of each replanning iteration
 
     # Generate the waypoints for the entire trajectory
-    ref = generate_lissajous_traj(np.linspace(0, period, period * 100 + 1), x_num_periods, y_num_periods, z_num_periods,
-                                  yaw_num_periods, period, x_amp, y_amp, z_amp, yaw_amp)
+    ref = generate_lissajous_traj(
+        np.linspace(0, period, period * 100 + 1),
+        x_num_periods,
+        y_num_periods,
+        z_num_periods,
+        yaw_num_periods,
+        period,
+        x_amp,
+        y_amp,
+        z_amp,
+        yaw_amp,
+    )
     waypt = np.array(ref)[:, 0::30]
     # waypt = np.array(ref)[:, 0::50]
     # Get the number of segments and time samples
@@ -350,7 +394,6 @@ def main():
     waypt[2, :] = waypt[2, :] - offset + 0.1
 
     print(len(waypt.T))
-
 
     # Initialize the current waypoint index
     current_waypoint_index = 0
@@ -369,7 +412,9 @@ def main():
         mav_obj.publish_waypoints(selected_waypoints.T, 1.0, 0.0, 0.0, 0.9)
 
         # Replan the trajectory based on previous and next waypoints
-        new_traj_coeffs, min_jerk_coeffs, nn_coeff = simple_replan(selected_waypoints, duration, order, p, vf, rho, idx)
+        new_traj_coeffs, min_jerk_coeffs, nn_coeff = simple_replan(
+            selected_waypoints, duration, order, p, vf, rho, idx
+        )
 
         idx += 1
 
@@ -385,7 +430,9 @@ def main():
         ts_new = np.linspace(0, duration, segment_new + 1)
         # pos, vel, acc, jerk, yaw, yaw_dot = compute_pos_vel_acc(Tref, new_traj_coeffs, segment_new, ts_new)
         # pos, vel, acc, jerk, yaw, yaw_dot = compute_pos_vel_acc(Tref, min_jerk_coeffs, segment_new, ts_new)
-        pos, vel, acc, jerk, yaw, yaw_dot = compute_pos_vel_acc(Tref, nn_coeff, segment_new, ts_new)
+        pos, vel, acc, jerk, yaw, yaw_dot = compute_pos_vel_acc(
+            Tref, nn_coeff, segment_new, ts_new
+        )
         # pos[:, -3] = waypt[:3, end_idx]
         # pos[:, -2] = waypt[:3, end_idx]
         # pos[:, -1] = waypt[:3, end_idx]
@@ -396,7 +443,9 @@ def main():
         # yaw_dot[-1] = 0
 
         # pos_nn, _, _, _, _, _ = compute_pos_vel_acc(Tref, nn_coeff, segment_new, ts_new)
-        pos_mj, _, _, _, _, _ = compute_pos_vel_acc(Tref, min_jerk_coeffs, segment_new, ts_new)
+        pos_mj, _, _, _, _, _ = compute_pos_vel_acc(
+            Tref, min_jerk_coeffs, segment_new, ts_new
+        )
 
         """from mpl_toolkits.mplot3d import Axes3D
         fig = plt.figure()
@@ -436,8 +485,22 @@ def main():
         # Pass commands to the controller at a certain frequency
         for i in range(len(pos.T)):
             rospy.logwarn("Publishing pos: %s", pos[:, i])
-            mav_obj.publish_pos_cmd(pos[0, i], pos[1, i], pos[2, i], vel[0, i], vel[1, i], vel[2, i], acc[0, i],
-                                    acc[1, i], acc[2, i], jerk[0, i], jerk[1, i], jerk[2, i], yaw[i], yaw_dot[i])
+            mav_obj.publish_pos_cmd(
+                pos[0, i],
+                pos[1, i],
+                pos[2, i],
+                vel[0, i],
+                vel[1, i],
+                vel[2, i],
+                acc[0, i],
+                acc[1, i],
+                acc[2, i],
+                jerk[0, i],
+                jerk[1, i],
+                jerk[2, i],
+                yaw[i],
+                yaw_dot[i],
+            )
             rate.sleep()
 
         end = rospy.Time.now()
@@ -445,19 +508,23 @@ def main():
 
         rospy.logwarn("Reached initial waypoints")
 
-    mav_obj.send_wp_block(pos[0, -1], pos[1, -1], pos[2, -1], 0.0, 0, 0,
-                          False)  # x, y, z, yaw, vel, acc, relative
+    mav_obj.send_wp_block(
+        pos[0, -1], pos[1, -1], pos[2, -1], 0.0, 0, 0, False
+    )  # x, y, z, yaw, vel, acc, relative
 
     # save_object(duration, '/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/net_duration.pkl')
-    save_object(times_nn,
-                "/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/times_nn" + str(
-                    rho) + ".pkl")
+    save_object(
+        times_nn,
+        "/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/times_nn"
+        + str(rho)
+        + ".pkl",
+    )
     # save_object(times_mj, '/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/times_mj.pkl')
     # save_object(times_poly,
     #            '/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/times_poly.pkl')
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except rospy.ROSInterruptException:

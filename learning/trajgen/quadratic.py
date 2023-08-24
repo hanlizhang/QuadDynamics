@@ -1,7 +1,7 @@
 import numpy as np
 import cvxpy as cp
 
-from .trajutils import _diff_coeff, _facln, _cost_matrix
+from trajutils import _diff_coeff, _facln, _cost_matrix
 
 def _continuity_constr(n, order, coeff1, coeff2, x_wp, T1):
     ''' Return a list of continuity constraints enforced at p_1(T1) and p_2(0).

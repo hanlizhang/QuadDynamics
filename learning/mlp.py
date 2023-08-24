@@ -14,9 +14,9 @@ VERSION
     0.1
 """
 
-import flax
 from flax import linen as nn
-import torch
+import torch.nn as tnn
+import torch.nn.functional as F
 
 
 class MLP(nn.Module):
@@ -36,3 +36,32 @@ class MLP(nn.Module):
         x = self.linear2(x)
         return x
         #return x ** 2
+
+
+class MLP_torch(tnn.Module):
+    def __init__(self,
+                 inp_size=1002,
+                 num_hidden=[500, 400, 200]):
+      super(MLP_torch, self).__init__()
+
+      self.inp_size = inp_size
+      self.num_hidden = num_hidden
+
+      # Hidden layers
+      self.hidden = tnn.ModuleList()
+      self.hidden.append(tnn.Linear(inp_size, num_hidden[0]))
+      for k in range(len(num_hidden) - 1):
+        self.hidden.append(tnn.Linear(num_hidden[k], num_hidden[k+1]))
+
+      # Final output layer
+      self.linear2 = tnn.Linear(num_hidden[-1], 1)
+
+    def forward(self, x):
+        x = x.float()
+        for i in range(len(self.num_hidden)):
+            #import ipdb;
+            #ipdb.set_trace()
+            x = self.hidden[i](x)
+            x = F.elu(x)
+        x = self.linear2(x)
+        return x

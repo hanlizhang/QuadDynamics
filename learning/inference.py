@@ -344,6 +344,29 @@ def main():
 
     # vf = model.bind(trained_model_state.params)
 
+    # get the waypoints from circular trajectory in csv--0823
+    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/constwind_1_5_noyaw.csv"
+    data = np.loadtxt(path, delimiter=",", skiprows=1)
+    # 5 trajs in total, each traj has 502 data points
+    num_traj = 5
+    num_data = 502
+    traj = []
+    for i in range(num_traj):
+        print(i)
+        traj.append(data[i * num_data : (i + 1) * num_data, 1:4])
+    print("traj's shape", np.array(traj).shape)
+
+    # extract waypoints from each traj, density is 10, interval is 50, get 10 waypoints from each traj
+    density = 10
+    interval = num_data // density
+    print("interval", interval)
+    waypoints = []
+    for i in range(num_traj):
+        waypoints.append(traj[i][0::interval, :])
+    print("waypoints's shape", np.array(waypoints).shape)
+    print("waypoints", waypoints)
+
+    ###########foget about replanning for now
     # parameters for lissajous trajectory
 
     np.random.seed(3)

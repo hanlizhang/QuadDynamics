@@ -41,7 +41,7 @@ class MLP(nn.Module):
 
 
 class MLP_torch(tnn.Module):
-    def __init__(self, inp_size=501, num_hidden=[50, 40, 20]):
+    def __init__(self, inp_size=502, num_hidden=[50, 40, 20]):
         super(MLP_torch, self).__init__()
 
         self.inp_size = inp_size

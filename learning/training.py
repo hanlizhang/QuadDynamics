@@ -245,6 +245,8 @@ def main():
         r0 = ref_traj[i * horizon : (i + 1) * horizon, :]
         act = actual_traj[i * horizon : (i + 1) * horizon, :]
         aug_state.append(np.append(act[0, :], r0))
+        # act[0, :] is the first row of actual_traj, which is the initial state, dimension is 4
+        # r0 is the reference trajectory, dimension is 502*4
 
     aug_state = np.array(aug_state)
     print(aug_state.shape)

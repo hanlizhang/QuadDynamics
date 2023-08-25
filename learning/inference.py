@@ -6,6 +6,7 @@ simple replanning with lissajous trajectory with fixed waypoints
 """
 
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # Import the 3D projection
 import rospy
 import numpy as np
 import random
@@ -23,6 +24,9 @@ import optax
 import jax
 from mlp import MLP, MLP_torch
 from model_learning import restore_checkpoint
+from jaxopt import ProjectedGradient
+from jaxopt.projection import projection_affine_set
+import jax.numpy as jnp
 
 
 PI = np.pi
@@ -293,6 +297,81 @@ def load_object(str):
         return pickle.load(handle)
 
 
+def test_opt(trained_model_state, aug_test_state, N, num_inf, rho):
+    """
+    Planner method that includes the learned tracking cost function and the utility cost
+    :param trained_model_state: weights of the trained model
+    :param aug_test_state: Test trajectories
+    :param N: horizon of each trajectory
+    :param num_inf: total number of test trajectories
+    :param rho: tracking penalty factor
+    :return: sim_cost, init_cost
+    """
+
+    new_aug_state = []
+
+    def calc_cost_GD(ref):
+        pred = trained_model_state.apply_fn(trained_model_state.params, ref).ravel()
+        return jnp.exp(pred[0])
+
+    A = np.zeros((6, (N + 1) * 4))
+    A[0, 0] = 1
+    A[1, 1] = 1
+    A[2, 2] = 1
+    A[-3, -3] = 1
+    A[-2, -2] = 1
+    A[-1, -1] = 1
+
+    solution = []
+    sim_cost = []
+    init_cost = []
+    ref = []
+    rollout = []
+    times = []
+
+    for i in range(num_inf):
+        init = aug_test_state[i, 0:3]
+        goal = aug_test_state[i, -3:]
+
+        b = np.append(init, goal)
+
+        init_ref = aug_test_state[i, :].copy()
+
+        # wp = init_ref[3*ts[1]:3*(ts[1]+1)]
+        # init_val = calc_cost_GD(wp, init_ref)
+        init_val = calc_cost_GD(init_ref)
+
+        pg = ProjectedGradient(ref, projection=projection_affine_set, maxiter=1)
+        solution.append(pg.run(aug_test_state[i, :], hyperparams_proj=(A, b)))
+        prev_val = init_val
+        val = solution[i].state.error
+        cur_sol = solution[i]
+        chosen_val = val
+
+        if rho < 1:
+            loop_val = 5
+        else:
+            loop_val = 20
+        for j in range(loop_val):
+            next_sol = pg.update(cur_sol.params, cur_sol.state, hyperparams_proj=(A, b))
+            val = next_sol.state.error
+            if val < prev_val:
+                chosen_val = val
+                solution[i] = cur_sol
+            prev_val = val
+            cur_sol = next_sol
+
+        sol = solution[i]
+        new_aug_state.append(sol.params)
+        if chosen_val > init_val:
+            new_aug_state.append(init_ref)
+
+        # x0 = init_ref[0:3]
+        # ref.append(new_aug_state[3:].reshape([N, 3]))
+
+    return new_aug_state
+
+
 def main():
     # Define the lists to keep track of times for the simulations
     times_nn = []
@@ -334,15 +413,15 @@ def main():
 
     trained_model_state = restore_checkpoint(model_state, model_save)
 
-    mlp_t = load_torch_model(trained_model_state)
+    # mlp_t = load_torch_model(trained_model_state)
 
-    print(mlp_t)
+    # print(mlp_t)
 
-    vf = valuefunc.MLPValueFunc(mlp_t)
+    # vf = valuefunc.MLPValueFunc(mlp_t)
 
-    vf.network = mlp_t
+    # vf.network = mlp_t
 
-    # vf = model.bind(trained_model_state.params)
+    vf = model.bind(trained_model_state.params)
 
     # get the waypoints from circular trajectory in csv--0823
     path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/constwind_1_5_noyaw.csv"
@@ -350,22 +429,115 @@ def main():
     # 5 trajs in total, each traj has 502 data points
     num_traj = 5
     num_data = 502
-    traj = []
+    actual_traj = []
+    # add yaw to actual_traj as 0
     for i in range(num_traj):
-        print(i)
-        traj.append(data[i * num_data : (i + 1) * num_data, 1:4])
-    print("traj's shape", np.array(traj).shape)
+        actual_traj.append(data[i * num_data : (i + 1) * num_data, 1:4])
+        actual_traj[i] = np.hstack((actual_traj[i], np.zeros((num_data, 1))))
+    print("actual_traj's shape", np.array(actual_traj).shape)
 
     # extract waypoints from each traj, density is 10, interval is 50, get 10 waypoints from each traj
     density = 10
-    interval = num_data // density
-    print("interval", interval)
+    interval = num_data // density  # 50
+    # print("interval", interval)
     waypoints = []
     for i in range(num_traj):
-        waypoints.append(traj[i][0::interval, :])
-    print("waypoints's shape", np.array(waypoints).shape)
-    print("waypoints", waypoints)
+        # waypoints.append(traj[i][0::interval, :])
+        # no need to include last one
+        waypoints.append(actual_traj[i][0::interval, :][:-1, :])
 
+    # print("waypoints's shape", np.array(waypoints).shape)
+    # print("waypoints", waypoints)
+
+    # visualize the waypoints
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection="3d")
+    for i in range(num_traj):
+        axes.plot3D(waypoints[i][:, 0], waypoints[i][:, 1], waypoints[i][:, 2], "*")
+    axes.set_xlim(-6, 6)
+    axes.set_zlim(0, 1)
+    axes.set_ylim(-6, 6)
+    plt.show()
+
+    # get augstate for the first traj
+    ref_traj = []
+    # add yaw to ref_traj as 0
+    for i in range(num_traj):
+        ref_traj.append(data[i * num_data : (i + 1) * num_data, 22:24])
+
+    # focus on the first traj
+    i = 0
+    p = 4
+    order = 5
+    duration = 5
+    ts = np.linspace(0, duration, len(waypoints[i]))
+    print("waypoints[i]'s shape", waypoints[i].shape)
+
+    # get min_jerk_coeffs for each traj
+    _, min_jerk_coeffs = quadratic.generate(
+        waypoints[i], ts, order, duration * 100, p, None, 0
+    )
+    print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
+    print("min_jerk_coeffs", min_jerk_coeffs)
+
+    # get nn_coeffs for each traj
+    nn_coeffs = nonlinear.generate(
+        torch.tensor(waypoints[i]),
+        ts,
+        order,
+        duration * 100,
+        p,
+        rho,
+        vf,
+        torch.tensor(min_jerk_coeffs),
+        num_iter=100,
+        lr=0.001,
+    )
+    print("nn_coeffs's shape", np.array(nn_coeffs).shape)
+    print("nn_coeffs", nn_coeffs)
+
+
+"""
+# for each traj, get min_jerk_coeffs and nn_coeffs
+    # get min_jerk_coeffs for each traj
+    min_jerk_coeffs = []
+    p = 4
+    order = 5
+    duration = 5
+    ts = np.linspace(0, duration, len(waypoints[i]))
+    print("waypoints[i]'s shape", waypoints[i].shape)
+    # print data type of waypoints[i]
+    print("waypoints[i]'s type", type(waypoints[i]))
+    for i in range(num_traj):
+        print(i)
+        _, min_jerk_coeffs = quadratic.generate(
+            waypoints[i].T, ts, order, duration * 100, p, None, 0
+        )
+        min_jerk_coeffs.append(min_jerk_coeffs)
+    print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
+
+    # get nn_coeffs for each traj
+    nn_coeffs = []
+    for i in range(num_traj):
+        print(i)
+        nn_coeffs.append(
+            nonlinear.generate(
+                waypoints[i],
+                ts,
+                order,
+                duration * 100,
+                p,
+                rho,
+                vf,
+                min_jerk_coeffs[i],
+                num_iter=100,
+                lr=0.001,
+            )
+        )
+    print("nn_coeffs's shape", np.array(nn_coeffs).shape)
+"""
+
+"""
     ###########foget about replanning for now
     # parameters for lissajous trajectory
 
@@ -470,7 +642,9 @@ def main():
             Tref, min_jerk_coeffs, segment_new, ts_new
         )
 
-        """from mpl_toolkits.mplot3d import Axes3D
+        """
+"""
+        from mpl_toolkits.mplot3d import Axes3D
         fig = plt.figure()
         axes = fig.add_subplot(111, projection='3d')
         # ttraj = actual_traj.copy()
@@ -502,6 +676,7 @@ def main():
         plt.show()
         # 0510
         """
+"""
 
         start = rospy.Time.now()
         times_nn.append(start)
@@ -545,7 +720,7 @@ def main():
     # save_object(times_mj, '/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/times_mj.pkl')
     # save_object(times_poly,
     #            '/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/times_poly.pkl')
-
+"""
 
 if __name__ == "__main__":
     try:

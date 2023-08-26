@@ -429,12 +429,44 @@ def main():
     # 5 trajs in total, each traj has 502 data points
     num_traj = 5
     num_data = 502
+
+    # get actual_traj for the first traj
     actual_traj = []
     # add yaw to actual_traj as 0
     for i in range(num_traj):
         actual_traj.append(data[i * num_data : (i + 1) * num_data, 1:4])
         actual_traj[i] = np.hstack((actual_traj[i], np.zeros((num_data, 1))))
     print("actual_traj's shape", np.array(actual_traj).shape)
+    # not list
+    actual_traj = np.array(actual_traj)
+
+    # get ref_traj for the first traj
+    ref_traj = []
+    # add yaw to ref_traj as 0
+    for i in range(num_traj):
+        ref_traj.append(data[i * num_data : (i + 1) * num_data, 21:24])
+        ref_traj[i] = np.hstack((ref_traj[i], np.zeros((num_data, 1))))
+    print("ref traj", ref_traj[0])
+    ref_traj = np.array(ref_traj)
+
+    aug_state = []
+    # focus on the first traj
+    i = 0
+    # for i in range(num_traj):
+    r0 = ref_traj[0][i * num_data : (i + 1) * num_data, :]
+    print("ref_traj[0]'s shape", ref_traj[0].shape)
+    print("r0's shape", r0.shape)
+    act = actual_traj[0][i * num_data : (i + 1) * num_data, :]
+    print("act[0, :]'s shape", act[0, :].shape)
+    aug_state.append(np.append(act[0, :], r0))
+
+    print("aug_state's shape", np.array(aug_state).shape)
+    aug_state = np.array(aug_state)
+
+    new_aug_state = test_opt(trained_model_state, aug_state, num_data, 1, 1)
+    print("new_aug_state's shape", np.array(new_aug_state).shape)
+    print("new_aug_state", new_aug_state)
+    print("train_state", trained_model_state)
 
     # extract waypoints from each traj, density is 10, interval is 50, get 10 waypoints from each traj
     density = 10
@@ -459,26 +491,20 @@ def main():
     axes.set_ylim(-6, 6)
     plt.show()
 
-    # get augstate for the first traj
-    ref_traj = []
-    # add yaw to ref_traj as 0
-    for i in range(num_traj):
-        ref_traj.append(data[i * num_data : (i + 1) * num_data, 22:24])
-
     # focus on the first traj
     i = 0
     p = 4
     order = 5
     duration = 5
     ts = np.linspace(0, duration, len(waypoints[i]))
-    print("waypoints[i]'s shape", waypoints[i].shape)
+    # print("waypoints[i]'s shape", waypoints[i].shape)
 
     # get min_jerk_coeffs for each traj
     _, min_jerk_coeffs = quadratic.generate(
         waypoints[i], ts, order, duration * 100, p, None, 0
     )
-    print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
-    print("min_jerk_coeffs", min_jerk_coeffs)
+    # print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
+    # print("min_jerk_coeffs", min_jerk_coeffs)
 
     # get nn_coeffs for each traj
     nn_coeffs = nonlinear.generate(

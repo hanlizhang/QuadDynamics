@@ -17,6 +17,7 @@ VERSION
 from flax import linen as nn
 import torch.nn as tnn
 import torch.nn.functional as F
+import torch
 
 
 class MLP(nn.Module):
@@ -65,3 +66,8 @@ class MLP_torch(tnn.Module):
             x = F.elu(x)
         x = self.linear2(x)
         return x
+
+    def pred(self, x0, ref):
+        """The general prediction for NN value functions"""
+        d0 = torch.cat([x0, ref]).double()
+        return self.network(d0.unsqueeze(0))[0]

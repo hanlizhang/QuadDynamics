@@ -128,7 +128,7 @@ def generate(
     num_seg = len(ts) - 1
     durations = ts[1:] - ts[:-1]
 
-    # cost_mat = spl.block_diag(*[_cost_matrix(order, num_seg, d) for d in durations])
+    cost_mat = spl.block_diag(*[_cost_matrix(order, num_seg, d) for d in durations])
 
     coeff = np.zeros((coeff0.shape[0], num_coeffs))
     for i in range(len(waypoints) - 1):
@@ -152,7 +152,11 @@ def generate(
         # cost += vf.apply_fn(vf.params, jnp.concatenate([x0, ref]))[0]
         # cost = jnp.exp(vf.apply_fn(vf.params, jnp.concatenate([x0, ref]))[0])
         ref = coeff2traj(coeff, ts, num_steps)
-        cost = vf([x0, ref])[0]
+        # cost = vf([x0, ref])[0]
+        cost = 0
+        for pp in range(p):
+            cost += jnp.dot(coeff[pp], cost_mat @ coeff[pp])
+        cost = vf.apply_fn(vf.params, jnp.concatenate([x0, ref]))[0]
         t_cost = cost + util_cost
         return t_cost
 

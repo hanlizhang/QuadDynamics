@@ -190,7 +190,7 @@ def generate_polynomial_trajectory(start, end, T, order):
     return coeffs
 
 
-def load_torch_model(trained_model_state):
+def load_torch_model(trained_model_state, inp_size, num_hidden):
     # Load checkpoint
     weights = trained_model_state.params["params"]
 
@@ -207,8 +207,10 @@ def load_torch_model(trained_model_state):
         return torch.from_numpy(np.array(x))
 
     # Create network
-    inp_size = 1204
-    num_hidden = [500, 400, 200]
+    # inp_size = 1204
+    # inp_size = 2012
+    # num_hidden = [50, 40, 20]
+    # num_hidden = [500, 400, 200]
     mlp_t = MLP_torch(inp_size, num_hidden)
 
     for i in range(3):
@@ -311,8 +313,10 @@ def test_opt(trained_model_state, aug_test_state, N, num_inf, rho):
     new_aug_state = []
 
     def calc_cost_GD(ref):
+        # forward: takes the learned parameters of your trained model and applies them to the input data ref to make predictions.
         pred = trained_model_state.apply_fn(trained_model_state.params, ref).ravel()
-        return jnp.exp(pred[0])
+        return jnp.exp(pred[0]) * 0.1 + jnp.sum((init_ref - ref) ** 2)
+        # return jnp.exp(pred[0])
 
     A = np.zeros((6, (N + 1) * 4))
     A[0, 0] = 1
@@ -341,7 +345,9 @@ def test_opt(trained_model_state, aug_test_state, N, num_inf, rho):
         # init_val = calc_cost_GD(wp, init_ref)
         init_val = calc_cost_GD(init_ref)
 
-        pg = ProjectedGradient(ref, projection=projection_affine_set, maxiter=1)
+        pg = ProjectedGradient(
+            calc_cost_GD, projection=projection_affine_set, maxiter=1
+        )
         solution.append(pg.run(aug_test_state[i, :], hyperparams_proj=(A, b)))
         prev_val = init_val
         val = solution[i].state.error
@@ -380,6 +386,7 @@ def main():
 
     # Initialize neural network
     rho = 1
+    input_size = 2012
 
     # with open(
     #     r"/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/params.yaml"
@@ -399,7 +406,9 @@ def main():
 
     rng = jax.random.PRNGKey(427)
     rng, inp_rng, init_rng = jax.random.split(rng, 3)
-    inp = jax.random.normal(inp_rng, (batch_size, 4))  # Batch size 64, input size p
+    inp = jax.random.normal(
+        inp_rng, (batch_size, 2012)
+    )  # Batch size 32, input size 2012
     # Initialize the model
     params = model.init(init_rng, inp)
 
@@ -413,15 +422,15 @@ def main():
 
     trained_model_state = restore_checkpoint(model_state, model_save)
 
-    # mlp_t = load_torch_model(trained_model_state)
+    mlp_t = load_torch_model(trained_model_state, input_size, num_hidden)
 
-    # print(mlp_t)
+    print(mlp_t)
 
-    # vf = valuefunc.MLPValueFunc(mlp_t)
+    vf = valuefunc.MLPValueFunc(mlp_t)
 
-    # vf.network = mlp_t
+    vf.network = mlp_t
 
-    vf = model.bind(trained_model_state.params)
+    # vf = model.bind(trained_model_state.params)
 
     # get the waypoints from circular trajectory in csv--0823
     path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/constwind_1_5_noyaw.csv"
@@ -446,9 +455,10 @@ def main():
     for i in range(num_traj):
         ref_traj.append(data[i * num_data : (i + 1) * num_data, 21:24])
         ref_traj[i] = np.hstack((ref_traj[i], np.zeros((num_data, 1))))
-    print("ref traj", ref_traj[0])
+    # print("ref traj", ref_traj[0])
     ref_traj = np.array(ref_traj)
 
+    """
     aug_state = []
     # focus on the first traj
     i = 0
@@ -467,6 +477,20 @@ def main():
     print("new_aug_state's shape", np.array(new_aug_state).shape)
     print("new_aug_state", new_aug_state)
     print("train_state", trained_model_state)
+    # visualize the new traj from new_aug_state's x, y, z
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection="3d")
+    axes.plot3D(
+        new_aug_state[0][0::4],
+        new_aug_state[0][1::4],
+        new_aug_state[0][2::4],
+        "r",
+    )
+    axes.set_xlim(-6, 6)
+    axes.set_zlim(0, 1)
+    axes.set_ylim(-6, 6)
+    plt.show()
+    """
 
     # extract waypoints from each traj, density is 10, interval is 50, get 10 waypoints from each traj
     density = 10
@@ -501,9 +525,9 @@ def main():
 
     # get min_jerk_coeffs for each traj
     _, min_jerk_coeffs = quadratic.generate(
-        waypoints[i], ts, order, duration * 100, p, None, 0
+        waypoints[i], ts, order, num_data, p, None, 0
     )
-    # print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
+    print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
     # print("min_jerk_coeffs", min_jerk_coeffs)
 
     # get nn_coeffs for each traj
@@ -511,7 +535,7 @@ def main():
         torch.tensor(waypoints[i]),
         ts,
         order,
-        duration * 100,
+        num_data,
         p,
         rho,
         vf,
@@ -519,8 +543,23 @@ def main():
         num_iter=100,
         lr=0.001,
     )
+    # nn_coeffs = nonlinear_jax.generate(
+    #     waypoints[i].T,
+    #     ts,
+    #     order,
+    #     duration * 100,
+    #     p,
+    #     rho,
+    #     vf,
+    #     min_jerk_coeffs,
+    #     num_iter=100,
+    #     lr=0.001,
+    # )
     print("nn_coeffs's shape", np.array(nn_coeffs).shape)
     print("nn_coeffs", nn_coeffs)
+
+    # # compute pos, vel, acc, jerk, yaw, yaw_dot from nn_coeffs
+    # pos, vel, acc, jerk, yaw, yaw_dot = compute_pos_vel_acc(
 
 
 """

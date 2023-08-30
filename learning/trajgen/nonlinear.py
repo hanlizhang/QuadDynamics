@@ -30,11 +30,10 @@ class MinJerkReg(nn.Module):
         # Compute regularizer
         if self.regularizer is not None:
             ref = coeff2traj(self.coeff, self.ts, num_steps)[1].T.flatten()
-            cost += rho *  self.regularizer.pred(x0, ref)[0]
+            cost += rho * self.regularizer.pred(x0, ref)[0]
         return cost
 
 
-#def _coeff_constr_A(ts, coeffs):
 def _coeff_constr_A(ts, n, num_coeffs):
     ''' Construct the matrix for the linear constraints on the coeffs.
     Assumes the coeffs are stacked as [c1, c2, ..., c_{#seg}].T
@@ -63,14 +62,12 @@ def _coeff_constr_A(ts, n, num_coeffs):
     return A
 
 
-#def _coeff_constr_b(wps, ts, coeffs):
 def _coeff_constr_b(wps, ts, n):
     ''' b of the linear constraints
     Input:
         - wps:      np.array(p, #segments+1)
         - coeffs:   np.array(p, #segments, order of polynomial)
     '''
-    #n = coeffs.shape[2]         # n := order of polynomial + 1
     num_seg = len(ts) - 1
     num_constraints = num_seg * 4 + 2
     b = np.zeros((wps.shape[0], num_constraints))

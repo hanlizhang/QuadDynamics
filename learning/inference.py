@@ -7,7 +7,8 @@ simple replanning with lissajous trajectory with fixed waypoints
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # Import the 3D projection
-import rospy
+
+# import rospy
 import numpy as np
 import random
 
@@ -100,6 +101,7 @@ def compute_pos_vel_acc(Tref, nn_coeffs, segments, ts):
     vel = []
     acc = []
     jerk = []
+    snap = []
 
     x_ref = [np.poly1d(coeff_x[i, :]) for i in range(segments)]
     x_ref = np.vstack(sampler(x_ref, Tref, ts)).flatten()
@@ -150,6 +152,19 @@ def compute_pos_vel_acc(Tref, nn_coeffs, segments, ts):
     zdddot_ref = np.vstack(sampler(zdddot_ref, Tref, ts)).flatten()
     jerk.append([xdddot_ref, ydddot_ref, zdddot_ref])
 
+    dddd_x = compute_coeff_deriv(coeff_x, 4, segments)
+    xdddd_ref = [np.poly1d(dddd_x[i, :]) for i in range(segments)]
+    xdddd_ref = np.vstack(sampler(xdddd_ref, Tref, ts)).flatten()
+
+    dddd_y = compute_coeff_deriv(coeff_y, 4, segments)
+    ydddd_ref = [np.poly1d(dddd_y[i, :]) for i in range(segments)]
+    ydddd_ref = np.vstack(sampler(ydddd_ref, Tref, ts)).flatten()
+
+    dddd_z = compute_coeff_deriv(coeff_z, 4, segments)
+    zdddd_ref = [np.poly1d(dddd_z[i, :]) for i in range(segments)]
+    zdddd_ref = np.vstack(sampler(zdddd_ref, Tref, ts)).flatten()
+    snap.append([xdddd_ref, ydddd_ref, zdddd_ref])
+
     yaw_ref = [np.poly1d(coeff_yaw[i, :]) for i in range(segments)]
     yaw_ref = np.vstack(sampler(yaw_ref, Tref, ts)).flatten()
 
@@ -157,13 +172,19 @@ def compute_pos_vel_acc(Tref, nn_coeffs, segments, ts):
     yawdot_ref = [np.poly1d(dot_yaw[i, :]) for i in range(segments)]
     yawdot_ref = np.vstack(sampler(yawdot_ref, Tref, ts)).flatten()
 
+    ddot_yaw = compute_coeff_deriv(coeff_yaw, 2, segments)
+    yawddot_ref = [np.poly1d(ddot_yaw[i, :]) for i in range(segments)]
+    yawddot_ref = np.vstack(sampler(yawddot_ref, Tref, ts)).flatten()
+
     return (
         np.vstack(pos),
         np.vstack(vel),
         np.vstack(acc),
         np.vstack(jerk),
+        np.vstack(snap),
         yaw_ref,
         yawdot_ref,
+        yawddot_ref,
     )
 
 
@@ -517,7 +538,7 @@ def main():
 
     # focus on the first traj
     i = 0
-    p = 4
+    p = 4  # num_dimensions
     order = 5
     duration = 5
     ts = np.linspace(0, duration, len(waypoints[i]))
@@ -555,11 +576,104 @@ def main():
     #     num_iter=100,
     #     lr=0.001,
     # )
-    print("nn_coeffs's shape", np.array(nn_coeffs).shape)
-    print("nn_coeffs", nn_coeffs)
+    print("nn_coeffs's shape", np.array(nn_coeffs).shape)  # (4, 9, 6)
+    # print("nn_coeffs", nn_coeffs)
 
-    # # compute pos, vel, acc, jerk, yaw, yaw_dot from nn_coeffs
-    # pos, vel, acc, jerk, yaw, yaw_dot = compute_pos_vel_acc(
+    # transform 3d tensor to numpy array with shape of (num_dimensions, num_segments, polynomial_order+1)
+    nn_coeffs = nn_coeffs.detach().numpy()
+    nn_coeffs = nn_coeffs.reshape((nn_coeffs.shape[0], -1))
+    nn_coeffs = nn_coeffs.reshape((nn_coeffs.shape[0], nn_coeffs.shape[1] // 6, 6))
+    # # pass them into simulator
+
+    # # save the tensor of nn_coeffs to csv file
+    # path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/nn_coeffs.csv"
+    # # transform 3d tensor and save to csv
+    # nn_coeffs = nn_coeffs.detach().numpy()
+    # nn_coeffs = nn_coeffs.reshape((nn_coeffs.shape[0], -1))
+    # np.savetxt(path, nn_coeffs, delimiter=",")
+
+    # # load nn_coeffs from csv file
+    # path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/nn_coeffs.csv"
+    # nn_coeffs = np.loadtxt(path, delimiter=",")
+    # nn_coeffs = nn_coeffs.reshape((nn_coeffs.shape[0], nn_coeffs.shape[1] // 6, 6))
+    # # print("nn_coeffs's shape", np.array(nn_coeffs).shape)
+    # # print("nn_coeffs", nn_coeffs)
+    # print("nn_coeffs' type", type(nn_coeffs))
+
+    # compute pos, vel, acc, jerk, yaw, yaw_dot from nn_coeffs
+    pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot = compute_pos_vel_acc(
+        502, nn_coeffs, nn_coeffs.shape[1], ts
+    )
+
+    # visualize the trajectory
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection="3d")
+    axes.plot3D(pos[0], pos[1], pos[2], "r")
+    axes.set_xlim(-6, 6)
+    axes.set_zlim(0, 1)
+    axes.set_ylim(-6, 6)
+    plt.show()
+
+    # save pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot to csv file
+    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos.csv"
+    header = [
+        "pos_x",
+        "pos_y",
+        "pos_z",
+        "vel_x",
+        "vel_y",
+        "vel_z",
+        "acc_x",
+        "acc_y",
+        "acc_z",
+        "jerk_x",
+        "jerk_y",
+        "jerk_z",
+        "snap_x",
+        "snap_y",
+        "snap_z",
+        "yaw",
+        "yaw_dot",
+        "yaw_ddot",
+    ]
+    pos = np.array(pos).T
+    vel = np.array(vel).T
+    acc = np.array(acc).T
+    jerk = np.array(jerk).T
+    snap = np.array(snap).T
+    yaw = np.array(yaw).reshape((-1, 1))
+    yaw_dot = np.array(yaw_dot).reshape((-1, 1))
+    yaw_ddot = np.array(yaw_ddot).reshape((-1, 1))
+
+    print("pos's shape", np.array(pos).shape)
+    print("vel's shape", np.array(vel).shape)
+    print("acc's shape", np.array(acc).shape)
+    print("jerk's shape", np.array(jerk).shape)
+    print("snap's shape", np.array(snap).shape)
+    print("yaw's shape", np.array(yaw).shape)
+    print("yaw_dot's shape", np.array(yaw_dot).shape)
+    print("yaw_ddot's shape", np.array(yaw_ddot).shape)
+
+    data = np.hstack((pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot))
+    np.savetxt(path, data, delimiter=",", header=",".join(header))
+
+    # # load pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot from csv file
+    # path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos.csv"
+    # data = np.loadtxt(path, delimiter=",", skiprows=1)
+    # pos = data[:, 0:3]
+    # vel = data[:, 3:6]
+    # acc = data[:, 6:9]
+    # jerk = data[:, 9:12]
+    # snap = data[:, 12:15]
+    # yaw = data[:, 15]
+    # yaw_dot = data[:, 16]
+    # yaw_ddot = data[:, 17]
+
+    # # get 10th flat output
+    # Index = 10
+    # # get 10th flat output's pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot
+    # pos = pos[Index]
+    # print("10th flat output's pos", pos)
 
 
 """
@@ -788,7 +902,8 @@ def main():
 """
 
 if __name__ == "__main__":
-    try:
-        main()
-    except rospy.ROSInterruptException:
-        pass
+    # try:
+    #     main()
+    # except rospy.ROSInterruptException:
+    #     pass
+    main()

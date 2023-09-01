@@ -69,7 +69,7 @@ world = World.from_file(
     )
 )
 
-circular_traj = CircularTraj(radius=2.5)
+circular_traj = CircularTraj(radius=3)
 
 # "world" is an optional argument. If you don't load a world it'll just provide an empty playground!
 
@@ -86,7 +86,7 @@ sim_instance = Environment(
     # wind_profile=DrydenGustLP(
     #     dt=1 / 100, avg_wind=[0, 0, 0], sig_wind=[5, 5, 5], tau=1
     # ),  # OPTIONAL: wind profile object, if none is supplied it will choose no wind.
-    wind_profile=ConstantWind(1, 1, 1),
+    wind_profile=ConstantWind(0, 0, 0),
     sim_rate=100,  # OPTIONAL: The update frequency of the simulator in Hz. Default is 100 Hz.
     imu=None,  # OPTIONAL: imu sensor object, if none is supplied it will choose a default IMU sensor.
     mocap=None,  # OPTIONAL: mocap sensor object, if none is supplied it will choose a default mocap.
@@ -148,7 +148,7 @@ results = sim_instance.run(
     animate_bool=True,  # Boolean: determines if the animation of vehicle state will play.
     animate_wind=True,  # Boolean: determines if the animation will include a scaled wind vector to indicate the local wind acting on the UAV.
     verbose=True,  # Boolean: will print statistics regarding the simulation.
-    fname="50hz.mp4",  # String: determines the frame of reference for the animation. Options are "world", "body", and "NED". Default is "world".
+    fname="circle5.mp4",  # String: determines the frame of reference for the animation. Options are "world", "body", and "NED". Default is "world".
     # fname="const2_heart3.mp4",  # Filename is specified if you want to save the animation. The save location is rotorpy/data_out/.
 )
 
@@ -158,7 +158,7 @@ results = sim_instance.run(
 
 # To save this data as a .csv file, you can use the environment's built in save method. You must provide a filename.
 # The save location is rotorpy/data_out/
-sim_instance.save_to_csv("const1_circle2_5_5.csv")
+sim_instance.save_to_csv("circle_5.csv")
 
 # Instead of producing a CSV, you can manually unpack the dictionary into a Pandas DataFrame using the following:
 from rotorpy.utils.postprocessing import unpack_sim_data

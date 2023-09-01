@@ -29,8 +29,152 @@ from jaxopt import ProjectedGradient
 from jaxopt.projection import projection_affine_set
 import jax.numpy as jnp
 
+import transforms3d.euler as euler
+from itertools import accumulate
+
+gamma = 1
 
 PI = np.pi
+
+
+def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
+    # TODO: full state
+
+    # get the reference trajectory
+    # col W-Y position
+    ref_traj_x = sim_data[:, 22]
+    ref_traj_y = sim_data[:, 23]
+    ref_traj_z = sim_data[:, 24]
+    # col AL yaw_des
+    ref_traj_yaw = sim_data[:, 37]
+    ref_traj = np.vstack((ref_traj_x, ref_traj_y, ref_traj_z, ref_traj_yaw)).T
+    # debug: print the first 10 ref_traj
+    print("ref_traj: ", ref_traj[:10, :])
+
+    # get the actual trajectory
+    # col C-E position
+    actual_traj_x = sim_data[:, 2]
+    actual_traj_y = sim_data[:, 3]
+    actual_traj_z = sim_data[:, 4]
+    # col I-L quaternion
+    actual_traj_quat = sim_data[:, 8:12]
+    # quat2euler takes a 4 element sequence: w, x, y, z of quaternion
+    actual_traj_quat = np.hstack((actual_traj_quat[:, 3:4], actual_traj_quat[:, 0:3]))
+    # (cur_roll, cur_pitch, cur_yaw) = tf.transformations.euler_from_quaternion(actual_traj_quat)
+    # 4 element sequence: w, x, y, z of quaternion
+    # print("actual_traj_quat's shape: ", actual_traj_quat.shape)
+    actual_yaw = np.zeros(len(actual_traj_quat))
+    (cur_roll, cur_pitch, cur_yaw) = (
+        np.zeros(len(actual_traj_quat)),
+        np.zeros(len(actual_traj_quat)),
+        np.zeros(len(actual_traj_quat)),
+    )
+    for i in range(len(actual_traj_quat)):
+        (cur_roll[i], cur_pitch[i], cur_yaw[i]) = euler.quat2euler(actual_traj_quat[i])
+        actual_yaw[i] = cur_yaw[i]
+    actual_traj = np.vstack((actual_traj_x, actual_traj_y, actual_traj_z, actual_yaw)).T
+    # debug: print the first 10 actual_traj
+    print("actual_traj: ", actual_traj[:10, :])
+    # print("actual_traj's type: ", type(actual_traj))
+
+    # get the cmd input
+    # col BN desired thrust from so3 controller
+    input_traj_thrust = sim_data[:, 65]
+    # print("input_traj_thrust's shape: ", input_traj_thrust.shape)
+
+    # get the angular velocity from odometry: col M-O
+    odom_ang_vel = sim_data[:, 12:15]
+
+    """
+    # coverting quaternion to euler angle and get the angular velocity
+    # col BO-BR desired orientation from so3 controller(quaternion)
+    input_traj_quat = sim_data[:, 66:70]
+    # (cmd_roll, cmd_pitch, cmd_yaw) = tf.transformations.euler_from_quaternion(input_traj_quat)
+    input_traj_yaw = np.zeros(len(input_traj_quat))
+    (cmd_roll, cmd_pitch, cmd_yaw) = (
+        np.zeros(len(input_traj_quat)),
+        np.zeros(len(input_traj_quat)),
+        np.zeros(len(input_traj_quat)),
+    )
+    for i in range(len(input_traj_quat)):
+        (cmd_roll[i], cmd_pitch[i], cmd_yaw[i]) = euler.quat2euler(input_traj_quat[i])
+
+    # devided by time difference to get the angular velocity x, y, z
+    input_traj_ang_vel = (
+        np.diff(np.vstack((cmd_roll, cmd_pitch, cmd_yaw)).T, axis=0) / 0.01
+    )
+    # add the first element to the first row, so that the shape is the same as input_traj_thrust
+    input_traj_ang_vel = np.vstack((input_traj_ang_vel[0, :], input_traj_ang_vel))
+    # print("input_traj_ang_vel's shape: ", input_traj_ang_vel.shape)
+    
+    input_traj = np.hstack((input_traj_thrust.reshape(-1, 1), input_traj_ang_vel))
+    """
+
+    # input_traj = np.hstack((input_traj_thrust.reshape(-1, 1), odom_ang_vel))
+    # input_traj is sum of squares of motor speeds for 4 individual motors, col STUV
+    input_traj = sim_data[:, 18:22]
+
+    # debug: print the first 10 input_traj
+    print("input_traj: ", input_traj[:10, :])
+
+    # get the cost
+    cost_traj = compute_cum_tracking_cost(
+        ref_traj, actual_traj, input_traj, horizon, horizon, rho
+    )
+    # debug: print the first 10 cost_traj
+    # print("cost_traj: ", cost_traj[:10, :])
+
+    return ref_traj, actual_traj, input_traj, cost_traj, sim_data[:, 0]
+
+
+def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho):
+    # print type of input
+    print("ref_traj's type: ", type(ref_traj))
+    print("actual_traj's type: ", type(actual_traj))
+    print("input_traj's type: ", type(input_traj))
+
+    import ipdb
+
+    # ipdb.set_trace()
+
+    m, n = ref_traj.shape
+    num_traj = int(m / horizon)
+    xcost = []
+    for i in range(num_traj):
+        act = actual_traj[i * horizon : (i + 1) * horizon, :]
+        act = np.append(act, act[-1, :] * np.ones((N - 1, n)))
+        act = np.reshape(act, (horizon + N - 1, n))
+        r0 = ref_traj[i * horizon : (i + 1) * horizon, :]
+        r0 = np.append(r0, r0[-1, :] * np.ones((N - 1, n)))
+        r0 = np.reshape(r0, (horizon + N - 1, n))
+
+        # print("delta yaw: ", act[:, 3] - r0[:, 3])
+        # print("angle_wrap: ", angle_wrap(act[:, 3] - r0[:, 3]))
+        # print("yaw cost: ", angle_wrap(act[:, 3] - r0[:, 3]))
+        xcost.append(
+            rho
+            * (
+                np.linalg.norm(act[:, :3] - r0[:, :3], axis=1) ** 2
+                + angle_wrap(act[:, 3] - r0[:, 3]) ** 2
+                # ignore the yaw error
+            )
+            # input_traj cost is sum of squares of motor speeds for 4 individual motors
+            + np.linalg.norm(input_traj[i]) * 0.0001
+            # + np.linalg.norm(input_traj[i]) ** 2  # Removed 0.1 multiplier
+        )
+
+    xcost.reverse()
+    cost = []
+    for i in range(num_traj):
+        tot = list(accumulate(xcost[i], lambda x, y: x * gamma + y))
+        cost.append(np.log(tot[-1]))
+        # cost.append(tot[-1])
+    cost.reverse()
+    return np.vstack(cost)
+
+
+def angle_wrap(theta):
+    return (theta + np.pi) % (2 * np.pi) - np.pi
 
 
 def generate_lissajous_traj(
@@ -579,6 +723,108 @@ def main():
     print("nn_coeffs's shape", np.array(nn_coeffs).shape)  # (4, 9, 6)
     # print("nn_coeffs", nn_coeffs)
 
+    ## compute init_true cost
+    # Load the csv file
+    sim_data_init = np.loadtxt(
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_1_init.csv",
+        delimiter=",",
+        skiprows=1,
+    )
+
+    _, _, _, cost_traj_init, _ = compute_traj(sim_data=sim_data_init, horizon=num_data)
+    print("cost_traj's shape", np.array(cost_traj_init).shape)
+    print("init_true", cost_traj_init)
+
+    ## compute modified_true cost
+    # Load the csv file
+    sim_data_modified = np.loadtxt(
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_1_modified.csv",
+        delimiter=",",
+        skiprows=1,
+    )
+
+    _, _, _, cost_traj_modified, _ = compute_traj(
+        sim_data=sim_data_modified, horizon=num_data
+    )
+    print("cost_traj's shape", np.array(cost_traj_modified).shape)
+    print("modified_true", cost_traj_modified)
+
+    ## compute init_min_jerk cost
+    # Load the csv file
+    sim_data_init_min_jerk = np.loadtxt(
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_1_init_min_jerk.csv",
+        delimiter=",",
+        skiprows=1,
+    )
+
+    _, _, _, cost_traj_init_min_jerk, _ = compute_traj(
+        sim_data=sim_data_init_min_jerk, horizon=num_data
+    )
+    print("cost_traj's shape", np.array(cost_traj_init_min_jerk).shape)
+    print("init_min_jerk", cost_traj_init_min_jerk)
+
+    # # # # save to csv file and visualization # # #
+    # # compute pos, vel, acc, jerk, yaw, yaw_dot from min_jerk_coeffs
+    # pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot = compute_pos_vel_acc(
+    #     502, min_jerk_coeffs, min_jerk_coeffs.shape[1], ts
+    # )
+
+    # # visualize the trajectory
+    # fig = plt.figure()
+    # axes = fig.add_subplot(111, projection="3d")
+    # axes.plot3D(pos[0], pos[1], pos[2], "r")
+    # axes.set_xlim(-6, 6)
+    # axes.set_zlim(0, 1)
+    # axes.set_ylim(-6, 6)
+    # plt.show()
+
+    # # save pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot to csv file
+    # path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_min_jerk.csv"
+    # header = [
+    #     "pos_x",
+    #     "pos_y",
+    #     "pos_z",
+    #     "vel_x",
+    #     "vel_y",
+    #     "vel_z",
+    #     "acc_x",
+    #     "acc_y",
+    #     "acc_z",
+    #     "jerk_x",
+    #     "jerk_y",
+    #     "jerk_z",
+    #     "snap_x",
+    #     "snap_y",
+    #     "snap_z",
+    #     "yaw",
+    #     "yaw_dot",
+    #     "yaw_ddot",
+    # ]
+    # pos = np.array(pos).T
+    # vel = np.array(vel).T
+    # acc = np.array(acc).T
+    # jerk = np.array(jerk).T
+    # snap = np.array(snap).T
+    # yaw = np.array(yaw).reshape((-1, 1))
+    # yaw_dot = np.array(yaw_dot).reshape((-1, 1))
+    # yaw_ddot = np.array(yaw_ddot).reshape((-1, 1))
+
+    # print("pos's shape", np.array(pos).shape)
+    # print("vel's shape", np.array(vel).shape)
+    # print("acc's shape", np.array(acc).shape)
+    # print("jerk's shape", np.array(jerk).shape)
+    # print("snap's shape", np.array(snap).shape)
+    # print("yaw's shape", np.array(yaw).shape)
+    # print("yaw_dot's shape", np.array(yaw_dot).shape)
+    # print("yaw_ddot's shape", np.array(yaw_ddot).shape)
+
+    # data = np.hstack((pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot))
+    # np.savetxt(path, data, delimiter=",", header=",".join(header))
+
+
+"""
+# # # save to csv file and visualization # # #
+
     # transform 3d tensor to numpy array with shape of (num_dimensions, num_segments, polynomial_order+1)
     nn_coeffs = nn_coeffs.detach().numpy()
     nn_coeffs = nn_coeffs.reshape((nn_coeffs.shape[0], -1))
@@ -657,24 +903,7 @@ def main():
     data = np.hstack((pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot))
     np.savetxt(path, data, delimiter=",", header=",".join(header))
 
-    # # load pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot from csv file
-    # path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos.csv"
-    # data = np.loadtxt(path, delimiter=",", skiprows=1)
-    # pos = data[:, 0:3]
-    # vel = data[:, 3:6]
-    # acc = data[:, 6:9]
-    # jerk = data[:, 9:12]
-    # snap = data[:, 12:15]
-    # yaw = data[:, 15]
-    # yaw_dot = data[:, 16]
-    # yaw_ddot = data[:, 17]
-
-    # # get 10th flat output
-    # Index = 10
-    # # get 10th flat output's pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot
-    # pos = pos[Index]
-    # print("10th flat output's pos", pos)
-
+"""
 
 """
 # for each traj, get min_jerk_coeffs and nn_coeffs

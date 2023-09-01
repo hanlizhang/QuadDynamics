@@ -38,9 +38,12 @@ quad_params = {
     ),  # This dictates the direction of the torque for each motor.
     "rI": np.array([0, 0, 0]),  # location of the IMU sensor, meters
     # Frame aerodynamic properties
-    "c_Dx": 0.5e-2,  # parasitic drag in body x axis, N/(m/s)**2
-    "c_Dy": 0.5e-2,  # parasitic drag in body y axis, N/(m/s)**2
-    "c_Dz": 1e-2,  # parasitic drag in body z axis, N/(m/s)**2
+    "c_Dx": 8e-2,  # parasitic drag in body x axis, N/(m/s)**2
+    "c_Dy": 8e-2,  # parasitic drag in body y axis, N/(m/s)**2
+    "c_Dz": 16e-2,  # parasitic drag in body z axis, N/(m/s)**2
+    # "c_Dx": 0.5e-2,  # parasitic drag in body x axis, N/(m/s)**2
+    # "c_Dy": 0.5e-2,  # parasitic drag in body y axis, N/(m/s)**2
+    # "c_Dz": 1e-2,  # parasitic drag in body z axis, N/(m/s)**2
     # Rotor properties
     # See "System Identification of the Crazyflie 2.0 Nano Quadrocopter", Forster 2015.
     "k_eta": 5.57e-06,  # thrust coefficient N/(rad/s)**2

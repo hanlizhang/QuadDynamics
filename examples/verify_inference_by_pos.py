@@ -123,7 +123,7 @@ class VerifyInference:
 
 if __name__ == "__main__":
     # load pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot from csv file
-    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_min_jerk.csv"
+    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_min_jerk_0903.csv"
     data = np.loadtxt(path, delimiter=",", skiprows=1)
     pos = data[:, 0:3]
     vel = data[:, 3:6]

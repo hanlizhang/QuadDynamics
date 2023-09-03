@@ -1,7 +1,7 @@
 import numpy as np
 import cvxpy as cp
 
-from trajgen.trajutils import _diff_coeff, _facln, _cost_matrix
+from learning.trajgen.trajutils import _diff_coeff, _facln, _cost_matrix
 
 # from trajutils import _diff_coeff, _facln, _cost_matrix
 

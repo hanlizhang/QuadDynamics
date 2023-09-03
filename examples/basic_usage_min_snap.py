@@ -69,15 +69,45 @@ world = World.from_file(
     )
 )
 
-circular_traj = CircularTraj(radius=2)
-
 # "world" is an optional argument. If you don't load a world it'll just provide an empty playground!
-quad_params["c_Dx"] = 1e-1
+
+
+# get waypoints from a circle which is 3 meters in radius
+def get_circle_waypoints(radius, height, num_points):
+    # np.array([[x0 y0 z0], [x1 y1 z1], ...]]]
+    waypoints = []
+    for i in range(num_points):
+        theta = 2 * np.pi * i / num_points
+        x = radius * np.cos(theta)
+        y = radius * np.sin(theta)
+        waypoints.append([x, y, height])
+    return waypoints
+
+
+radius = 3
+waypoints = get_circle_waypoints(radius, 2, 40)
+waypoints = np.array(waypoints)
+print("waypoint", waypoints)
+yaw_array = np.zeros(waypoints.shape[0])
+# visualize the waypoints
+fig = plt.figure()
+ax = fig.add_subplot(111, projection="3d")
+ax.plot(waypoints[:, 0], waypoints[:, 1], waypoints[:, 2], "o")
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.set_zlabel("Z")
+plt.show()
+
+# v_avg = 1
+print("waypoints.shape[0]", waypoints.shape[0])
+v_avg = 2 * np.pi * radius / 5
+print("v_avg", v_avg)
 # An instance of the simulator can be generated as follows:
+traj = MinSnap(waypoints, yaw_array, v_avg)
 sim_instance = Environment(
     vehicle=Multirotor(quad_params),  # vehicle object, must be specified.
     controller=SE3Control(quad_params),  # controller object, must be specified.
-    trajectory=circular_traj,
+    trajectory=traj,
     # trajectory=CircularTraj(radius=2.5),  # trajectory object, must be specified.
     # trajectory=HeartTrajectory(scale=0.2),
     # trajectory=HeartTrajectory(scale=0.3),
@@ -106,7 +136,7 @@ Execution
 
 # Setting an initial state. This is optional, and the state representation depends on the vehicle used.
 # Generally, vehicle objects should have an "initial_state" attribute.
-x = circular_traj.update(0)
+x = traj.update(0)
 print(x)
 flat_output = x
 state = {

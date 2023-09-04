@@ -107,11 +107,11 @@ class VerifyInference:
             animate_bool=True,
             animate_wind=True,
             verbose=True,
-            fname="const1_circle_1_init_min_jerk.mp4",
+            fname="const1_circle_5_modified.mp4",
         )
 
         # The save location is rotorpy/data_out/
-        sim_instance.save_to_csv("const1_circle_1_init_min_jerk.csv")
+        sim_instance.save_to_csv("const1_circle_5_modified.csv")
 
         # Instead of producing a CSV, you can manually unpack the dictionary into a Pandas DataFrame using the following:
         from rotorpy.utils.postprocessing import unpack_sim_data
@@ -123,7 +123,7 @@ class VerifyInference:
 
 if __name__ == "__main__":
     # load pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot from csv file
-    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_min_jerk_0903.csv"
+    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos.csv"
     data = np.loadtxt(path, delimiter=",", skiprows=1)
     pos = data[:, 0:3]
     vel = data[:, 3:6]

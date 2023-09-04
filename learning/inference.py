@@ -681,7 +681,7 @@ def main():
     plt.show()
 
     # focus on the first traj
-    i = 0
+    i = 4
     p = 4  # num_dimensions
     order = 5
     duration = 5
@@ -726,7 +726,7 @@ def main():
     ## compute init_true cost
     # Load the csv file
     sim_data_init = np.loadtxt(
-        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_1_init.csv",
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_5_init.csv",
         delimiter=",",
         skiprows=1,
     )
@@ -738,7 +738,7 @@ def main():
     ## compute modified_true cost
     # Load the csv file
     sim_data_modified = np.loadtxt(
-        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_1_modified.csv",
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_5_modified.csv",
         delimiter=",",
         skiprows=1,
     )
@@ -752,7 +752,7 @@ def main():
     ## compute init_min_jerk cost
     # Load the csv file
     sim_data_init_min_jerk = np.loadtxt(
-        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_1_init_min_jerk.csv",
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_5_init_min_jerk.csv",
         delimiter=",",
         skiprows=1,
     )

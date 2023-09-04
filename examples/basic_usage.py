@@ -69,10 +69,10 @@ world = World.from_file(
     )
 )
 
-circular_traj = CircularTraj(radius=2)
+circular_traj = CircularTraj(radius=5)
 
 # "world" is an optional argument. If you don't load a world it'll just provide an empty playground!
-quad_params["c_Dx"] = 1e-1
+# quad_params["c_Dx"] = 1e-1
 # An instance of the simulator can be generated as follows:
 sim_instance = Environment(
     vehicle=Multirotor(quad_params),  # vehicle object, must be specified.
@@ -158,7 +158,7 @@ results = sim_instance.run(
 
 # To save this data as a .csv file, you can use the environment's built in save method. You must provide a filename.
 # The save location is rotorpy/data_out/
-sim_instance.save_to_csv("circle_5.csv")
+sim_instance.save_to_csv("const1_circle_5_init.csv")
 
 # Instead of producing a CSV, you can manually unpack the dictionary into a Pandas DataFrame using the following:
 from rotorpy.utils.postprocessing import unpack_sim_data

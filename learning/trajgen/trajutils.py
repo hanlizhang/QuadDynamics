@@ -1,6 +1,6 @@
-import numpy as jnp
-import scipy.special as sps
-# import jax.scipy.special as sps
+import jax.numpy as jnp
+# import scipy.special as sps
+import jax.scipy.special as sps
 # import numpy as np
 
 def _diff_coeff(n, t, dx_order):

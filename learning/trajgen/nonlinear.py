@@ -32,6 +32,7 @@ class MinJerkReg(nn.Module):
         if self.regularizer is not None:
             ref = coeff2traj(self.coeff, self.ts, num_steps)[1].T.flatten()
             cost += rho * self.regularizer.pred(x0, ref)[0]
+            cost += rho * self.regularizer.pred(x0, ref)[0]
         return cost
 
 

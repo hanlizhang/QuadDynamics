@@ -1,13 +1,11 @@
-import jax
 import jax.numpy as jnp
-import jaxopt
 import numpy as np
-from flax import linen as nn
 import jax.scipy.linalg as spl
-from .trajutils import _diff_coeff, _facln, _cost_matrix
-from jaxopt import ScipyMinimize
-
-# from flax.linen
+from .trajutils import _cost_matrix
+from jaxopt import ProjectedGradient
+from jaxopt.projection import projection_affine_set
+from nonlinear import _coeff_constr_A, _coeff_constr_b
+from jax import jit
 
 
 def _coeff_constr_A_wp(ts, n, num_coeffs):
@@ -102,8 +100,7 @@ def coeff2traj(coeffs, ts, numsteps):
             if tt > ts[k + 1]:
                 k += 1
             ref.append(jnp.polyval(coeffs[j, :], tt - ts[k]))
-    # return jnp.hstack(ref)
-    return ref
+    return jnp.hstack(ref)
 
 
 # @jax.jit
@@ -120,15 +117,16 @@ def generate(
 
     n = coeff0.shape[2]
     num_coeffs = np.prod(coeff0.shape[1:])
-    print("Num coeffs", num_coeffs)
-
-    A_coeff = _coeff_constr_A(ts, n, num_coeffs)
-    b_coeff = _coeff_constr_b(waypoints, ts, n)
-
-    num_seg = len(ts) - 1
     durations = ts[1:] - ts[:-1]
-
     cost_mat = spl.block_diag(*[_cost_matrix(order, num_seg, d) for d in durations])
+    A_coeff = _coeff_constr_A(ts, n, num_coeffs)
+    b_coeff = _coeff_constr_b(wp.T, ts, n)
+
+    cost_mat_full = spl.block_diag(*[cost_mat for i in range(p)])
+    A_coeff_full = spl.block_diag(*[A_coeff for i in range(p)])
+    b_coeff_full = jnp.ravel(b_coeff)
+
+    # cost_mat = spl.block_diag(*[_cost_matrix(order, num_seg, d) for d in durations])
 
     coeff = np.zeros((coeff0.shape[0], num_coeffs))
     for i in range(len(waypoints) - 1):
@@ -152,11 +150,7 @@ def generate(
         # cost += vf.apply_fn(vf.params, jnp.concatenate([x0, ref]))[0]
         # cost = jnp.exp(vf.apply_fn(vf.params, jnp.concatenate([x0, ref]))[0])
         ref = coeff2traj(coeff, ts, num_steps)
-        # cost = vf([x0, ref])[0]
-        cost = 0
-        for pp in range(p):
-            cost += jnp.dot(coeff[pp], cost_mat @ coeff[pp])
-        cost = vf.apply_fn(vf.params, jnp.concatenate([x0, ref]))[0]
+        cost = jnp.exp(vf(jnp.append(x0, ref))[0])
         t_cost = cost + util_cost
         return t_cost
 

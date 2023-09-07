@@ -75,7 +75,7 @@ def min_jerk_1d(waypoints, ts, n, num_steps):
     durations = ts[1:] - ts[:-1]
     # Compute objective
     for i in range(len(waypoints) - 1):
-        H = _cost_matrix(n, 3, durations[i])
+        H = _cost_matrix(n, 4, durations[i])
         objective += cp.quad_form(coeff[i], H)
     # Boundary conditions
     constr += _boundary_cond(n, coeff[0], [waypoints[0], 0, 0], 0)
@@ -83,7 +83,7 @@ def min_jerk_1d(waypoints, ts, n, num_steps):
     # Continuity constraints
     for i in range(len(waypoints) - 2):
         constr += _continuity_constr(
-            n, 3, coeff[i], coeff[i + 1], waypoints[i + 1], durations[i]
+            n, 4, coeff[i], coeff[i + 1], waypoints[i + 1], durations[i]
         )
     # Construct reference from coeff
     k = 0

@@ -36,16 +36,16 @@ class MinJerkReg(nn.Module):
         return cost
 
 
-def _coeff_constr_A(ts, coeffs):
-    # def _coeff_constr_A(ts, n, num_coeffs):
+# def _coeff_constr_A(ts, coeffs):
+def _coeff_constr_A(ts, n, num_coeffs):
     """Construct the matrix for the linear constraints on the coeffs.
     Assumes the coeffs are stacked as [c1, c2, ..., c_{#seg}].T
     Note: This is now applicable to min jerk only.
     """
-    n = coeffs.shape[2]  # n := order of polynomial + 1
+    # n = coeffs.shape[2]  # n := order of polynomial + 1
     num_seg = len(ts) - 1
     num_constraints = num_seg * 4 + 2
-    num_coeffs = np.prod(coeffs.shape[1:])
+    # num_coeffs = np.prod(coeffs.shape[1:])
     # num_coeffs = coeffs.shape[1]
     A = np.zeros((num_constraints, num_coeffs))
     # Continuity constraints
@@ -67,14 +67,14 @@ def _coeff_constr_A(ts, coeffs):
     return A
 
 
-def _coeff_constr_b(wps, ts, coeffs):
-    # def _coeff_constr_b(wps, ts, n):
+# def _coeff_constr_b(wps, ts, coeffs):
+def _coeff_constr_b(wps, ts, n):
     """b of the linear constraints
     Input:
         - wps:      np.array(p, #segments+1)
         - coeffs:   np.array(p, #segments, order of polynomial)
     """
-    n = coeffs.shape[2]  # n := order of polynomial + 1
+    # n = coeffs.shape[2]  # n := order of polynomial + 1
     num_seg = len(ts) - 1
     num_constraints = num_seg * 4 + 2
     b = np.zeros((wps.shape[0], num_constraints))

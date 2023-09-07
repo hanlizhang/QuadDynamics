@@ -4,8 +4,9 @@ Imports
 import numpy as np
 import cvxopt
 from scipy.linalg import block_diag
+import itertools
 
-def cvxopt_solve_qp(P, q=None, G=None, h=None, A=None, b=None):
+def cvxopt_solve_qp(P, q, G=None, h=None, A=None, b=None):
     """
     From https://scaron.info/blog/quadratic-programming-in-python.html . Infrastructure code for solving quadratic programs using CVXOPT. 
     The structure of the program is as follows: 
@@ -34,92 +35,131 @@ def cvxopt_solve_qp(P, q=None, G=None, h=None, A=None, b=None):
         return None
     return np.array(sol['x']).reshape((P.shape[1],))
 
-def H_fun(dt):
+def H_fun(dt, k=7):
     """
     Computes the cost matrix for a single segment in a single dimension.
-    *** Assumes that the decision variables c_i are e.g. x(t) = c_0 + c_1*t + c_2*t^2 + c_3*t^3 + c_4*t^4 + c_5*t^5 + c_6*t^6 + c_7*t^7
+    *** Assumes that the decision variables c_i are e.g. x(t) = c_0 + c_1*t + c_2*t^2 + c_3*t^3 + c_4*t^4 + c_5*t^5 + .. + c_k*t^k
     Inputs:
         dt, scalar, the duration of the segment (t_(i+1) - t_i) 
     Outputs:
-        H, numpy array, matrix containing the min snap cost function for that segment. Assumes the polynomial is of order 7.
+        H, numpy array, matrix containing the min snap cost function for that segment. Assumes the polynomial is at least order 5.
     """
 
-    cost = np.array([[576*dt, 1440*dt**2, 2880*dt**3, 5040*dt**4],
-                     [1440*dt**2, 4800*dt**3, 10800*dt**4, 20160*dt**5],
-                     [2880*dt**3, 10800*dt**4, 25920*dt**5, 50400*dt**6],
-                     [5040*dt**4, 20160*dt**5, 50400*dt**6, 100800*dt**7]])
+    H = np.zeros((k+1,k+1))
 
-    H = np.zeros((8,8))
-    H[4:,4:] = cost
+    ######## TODO: implement automatic cost function based on the desired cost functional (snap or jerk) and the order of the polynomial, k. 
+    # # Get the numerical factors for the fourth derivative of the polynomial of order k. 
+    # # E.g. for x(t) = c_0 + c_1*t + c_2*t^2 + c_3*t^3 + c_4*t^4 the fourth derivative is x(t) = 24*c_4, so the factor is just [24]
+    # factors = [(j-3)*(j-2)*(j-1)*j*(1)**(j-4) for j in range(4, k+1)]
+    # factors.reverse()
+    # snap_poly = np.poly1d(factors)  # Reverse to make use of numpy's polynomial functions. 
+
+    # # Use this to construct the cost function corresponding to snap. 
+    # squared_snap_poly = snap_poly**2
+
+    # # Now integrate. 
+    # integrated_snap_poly = np.polyint(squared_snap_poly)
+    # integrated_snap_coeff = np.flip(integrated_snap_poly.c)
+
+    # H = np.zeros((4,4))
+    # for i in range(4):
+    #     for j in range(4):
+    #         H[i, j] = integrated_snap_poly[i+j]/2
+
+
+    seventh_order_cost = np.array([[576*dt, 1440*dt**2, 2880*dt**3, 5040*dt**4],
+                                   [1440*dt**2, 4800*dt**3, 10800*dt**4, 20160*dt**5],
+                                   [2880*dt**3, 10800*dt**4, 25920*dt**5, 50400*dt**6],
+                                   [5040*dt**4, 20160*dt**5, 50400*dt**6, 100800*dt**7]])
+
+    # Only take up to the (k+1) entries
+    cost = seventh_order_cost[0:(k+1-4), 0:(k+1-4)]
+
+    H[4:(k+1),4:(k+1)] = cost
 
     return H 
 
-def get_1d_equality_constraints(keyframes, delta_t, m, vmax=2):
+def get_1d_constraints(keyframes, delta_t, m, k=7, vmax=5, vstart=0, vend=0):
     """
-    Computes the equality constraints for the min snap problem. 
-    *** Assumes that the decision variables c_i are e.g. x(t) = c_0 + c_1*t + c_2*t^2 + c_3*t^3 + c_4*t^4 + c_5*t^5 + c_6*t^6 + c_7*t^7
+    Computes the constraint matrices for the min snap problem. 
+    *** Assumes that the decision variables c_i are e.g. o(t) = c_0 + c_1*t + c_2*t^2 + ... c_(k)*t^(k)
+
+    We impose the following constraints FOR EACH SEGMENT m: 
+        1) x_m(0) = keyframe[i]             # position at t = 0
+        2) x_m(dt) = keyframe[i+1]          # position at t = dt
+        3) v_m(dt) = v_(m+1)(0)             # velocity continuity for interior segments
+        4) a_m(dt) = a_(m+1)(0)             # acceleration continuity for interior segments
+        5) j_m(dt) = j_(m+1)(0)             # jerk continuity for interior segments
+        6) s_m(dt) = s_(m+1)(0)             # snap continuity for interior segments
 
     Inputs:
         keyframes, numpy array, a list of m waypoints IN ONE DIMENSION (x,y,z, or yaw)
+        delta_t, numpy array, the times between keyframes computed apriori. 
+        m, int, the number of segments.
+        k, int, the degree of the polynomial. 
+        vmax, float, max speeds imposed at the midpoint of each segment. 
+        vstart, float, the starting speed of the quadrotor. 
+        vend, float, the ending speed of the quadrotor. 
+    Outputs:
+        A, numpy array, matrix of equality constraints (left side). 
+        b, numpy array, array of equality constraints (right side).
+        G, numpy array, matrix of inequality constraints (left side). 
+        h, numpy array, array of inequality constraints (right side).
 
     """
-    # N = keyframes.shape[0]  # the number of keyframes
-    K = 8*m                 # the number of decision variables
 
-    A = np.zeros((8*m, K))
-    b = np.zeros((8*m,))
-
-    G = np.zeros((m, K))
-    h = np.zeros((m))
-
+    # The constraint matrices to be filled out.
+    A = []
+    b = []
+    G = []
+    h = []
 
     for i in range(m): # for each segment...
-        # Compute the segment duration
+        # Gets the segment duration
         dt = delta_t[i]
 
         # Position continuity at the beginning of the segment
-        A[i, 8*i:(8*i+8)] = np.array([1, 0, 0, 0, 0, 0, 0, 0])
-        b[i] = keyframes[i]
+        A.append([0]*(k+1)*i + [1] + [0]*(k) + [0]*(k+1)*(m-i-1))
+        b.append(keyframes[i])
 
         # Position continuity at the end of the segment
-        A[m+i, 8*i:(8*i+8)] = np.array([1, dt, dt**2, dt**3, dt**4, dt**5, dt**6, dt**7])
-        b[m+i] = keyframes[i+1]
-
-        ###### At this point we have 2*m constraints.. 
+        A.append([0]*(k+1)*i + [dt**j for j in range(k+1)] + [0]*(k+1)*(m-i-1))
+        b.append(keyframes[i+1])
 
         # Intermediate smoothness constraints
         if i < (m-1): # we don't want to include the last segment for this loop
-            A[2*m + 6*i + 0, 8*i:(8*i+16)] = np.array([0, -1, -2*dt, -3*dt**2, -4*dt**3, -5*dt**4, -6*dt**5, -7*dt**6, 0, 1, 0, 0, 0, 0, 0, 0])     # Velocity
-            A[2*m + 6*i + 1, 8*i:(8*i+16)] = np.array([0, 0, -2, -6*dt, -12*dt**2, -20*dt**3, -30*dt**4, -42*dt**5, 0, 0, 2, 0, 0, 0, 0, 0])        # Acceleration
-            A[2*m + 6*i + 2, 8*i:(8*i+16)] = np.array([0, 0, 0, -6, -24*dt, -60*dt**2, -120*dt**3, -210*dt**4, 0, 0, 0, 6, 0, 0, 0, 0])             # Jerk
-            A[2*m + 6*i + 3, 8*i:(8*i+16)] = np.array([0, 0, 0, 0, -24, -120*dt, -360*dt**2, -840*dt**3, 0, 0, 0, 0, 24, 0, 0, 0])                  # Snap
-            A[2*m + 6*i + 4, 8*i:(8*i+16)] = np.array([0, 0, 0, 0, 0, -120, -720*dt, -2520*dt**2, 0, 0, 0, 0, 0, 120, 0, 0])                        # 5TH derivative
-            A[2*m + 6*i + 5, 8*i:(8*i+16)] = np.array([0, 0, 0, 0, 0, 0, -720, -5040*dt, 0, 0, 0, 0, 0, 0, 720, 0])                                 # 6TH derivative
 
-            b[2*m + 6*i + 0] = 0
-            b[2*m + 6*i + 1] = 0
-            b[2*m + 6*i + 2] = 0
-            b[2*m + 6*i + 3] = 0
-            b[2*m + 6*i + 4] = 0
-            b[2*m + 6*i + 5] = 0
+            A.append([0]*(k+1)*i + [0] + [-j*dt**(j-1) for j in range(1, k+1)] + [0] + [j*(0)**(j-1) for j in range(1, k+1)] + [0]*(k+1)*(m-i-2))  # Velocity
+            b.append(0)
+            A.append([0]*(k+1)*i + [0]*2 + [-(j-1)*j*dt**(j-2) for j in range(2, k+1)] + [0]*2 + [(j-1)*j*(0)**(j-2) for j in range(2, k+1)] + [0]*(k+1)*(m-i-2))  # Acceleration
+            b.append(0)
+            A.append([0]*(k+1)*i + [0]*3 + [-(j-2)*(j-1)*j*dt**(j-3) for j in range(3, k+1)] + [0]*3 + [(j-2)*(j-1)*j*(0)**(j-3) for j in range(3, k+1)] + [0]*(k+1)*(m-i-2))  # Jerk
+            b.append(0)
+            A.append([0]*(k+1)*i + [0]*4 + [-(j-3)*(j-2)*(j-1)*j*dt**(j-4) for j in range(4, k+1)] + [0]*4 + [(j-3)*(j-2)*(j-1)*j*(0)**(j-4) for j in range(4, k+1)] + [0]*(k+1)*(m-i-2))  # Snap
+            b.append(0)
 
-        G[i, 8*i:(8*i + 8)] = np.array([0, 1, 2*(0.5*dt), 3*(0.5*dt)**2, 4*(0.5*dt)**3, 5*(0.5*dt)**4, 6*(0.5*dt)**5, 7*(0.5*dt)**6])
-        h[i] = vmax
+        # Inequality constraints 
+        G.append([0]*(k+1)*i + [0] + [j*(0.5*dt)**(j-1) for j in range(1, k+1)] + [0]*(k+1)*(m-i-1))  # Velocity constraint at midpoint
+        h.append(vmax)
 
-    # Now we have added an addition 6*(m-1) constraints, total 2*m + 6*(m-1) = 2m + 8m - 6 = 8m - 6 constraints
-    # Last constraints are on the first and last trajectory segments. Higher derivatives are = 0
-    A[8*m - 6, 0:8] = np.array([0, 1, 0, 0, 0, 0, 0, 0])                                    # Velocity = 0 at start
-    b[8*m - 6] = 0
-    A[8*m - 5, -8:] = np.array([0, 1, 2*dt, 3*dt**2, 4*dt**3, 5*dt**4, 6*dt**5, 7*dt**6])   # Velocity = 0 at end
-    b[8*m - 5] = 0
-    A[8*m - 4, 0:8] = np.array([0, 0, 2, 0, 0, 0, 0, 0])                                    # Acceleration = 0 at start
-    b[8*m - 4] = 0
-    A[8*m - 3, -8:] = np.array([0, 0, 2, 6*dt,12*dt**2, 20*dt**3, 30*dt**4, 42*dt**5])      # Acceleration = 0 at end
-    b[8*m - 3] = 0
-    A[8*m - 2, 0:8] = np.array([0, 0, 0, 6, 0, 0, 0, 0])                                    # Jerk = 0 at start
-    b[8*m - 2] = 0
-    A[8*m - 1, -8:] = np.array([0, 0, 0, 6, 24*dt, 60*dt**2, 120*dt**3, 210*dt**4])         # Jerk = 0 at end
-    b[8*m - 1] = 0
+    A.append([0] + [j*(0)**(j-1) for j in range(1, k+1)] + [0]*(k+1)*(m-1))              # Velocity at start
+    b.append(vstart)
+    A.append([0]*(k+1)*(m-1) + [0] + [j*(dt)**(j-1) for j in range(1, k+1)])              # Velocity at end
+    b.append(vend)
+    A.append([0]*2 + [(j-1)*j*(0)**(j-2) for j in range(2, k+1)] + [0]*(k+1)*(m-1))        # Acceleration = 0 at start
+    b.append(0)
+    A.append([0]*(k+1)*(m-1) + [0]*2 + [(j-1)*j*(dt)**(j-2) for j in range(2, k+1)])       # Acceleration = 0 at end
+    b.append(0)
+    A.append([0]*3 + [(j-2)*(j-1)*j*(0)**(j-3) for j in range(3, k+1)]  + [0]*(k+1)*(m-1))        # Jerk = 0 at start
+    b.append(0)
+    A.append([0]*(k+1)*(m-1) + [0]*3 + [(j-2)*(j-1)*j*(dt)**(j-3) for j in range(3, k+1)])       # Jerk = 0 at end
+    b.append(0)
+
+    # Convert to numpy arrays and ensure floats to work with cvxopt. 
+    A = np.array(A).astype(float)
+    b = np.array(b).astype(float)
+    G = np.array(G).astype(float)
+    h = np.array(h).astype(float)
 
     return (A, b, G, h)
 
@@ -128,13 +168,18 @@ class MinSnap(object):
     MinSnap generates a minimum snap trajectory for the quadrotor, following https://ieeexplore.ieee.org/document/5980409. 
     The trajectory is a piecewise 7th order polynomial (minimum degree necessary for snap optimality). 
     """
-    def __init__(self, points, yaw_angles=None, v_avg=2):
+    def __init__(self, points, yaw_angles=None, yaw_rate_max=2*np.pi, 
+                poly_degree=7, yaw_poly_degree=7,
+                v_max=3, v_avg=1, v_start=[0, 0, 0], v_end=[0, 0, 0]):
         """
         Waypoints and yaw angles compose the "keyframes" for optimizing over. 
         Inputs:
             points, numpy array of m 3D waypoints. 
             yaw_angles, numpy array of m yaw angles corresponding to each waypoint. 
-            v_avg, the average speed between waypoints, this is used to do the time allocation. 
+            yaw_rate_max, the maximum yaw rate in rad/s
+            v_avg, the average speed between waypoints, this is used to do the time allocation as well as impose constraints at midpoint of each segment. 
+            v_start, the starting velocity vector given as an array [x_dot_start, y_dot_start, z_dot_start]
+            v_end, the ending velocity vector given as an array [x_dot_end, y_dot_end, z_dot_end]
         """
 
         if yaw_angles is None:
@@ -145,7 +190,7 @@ class MinSnap(object):
 
         # Compute the distances between each waypoint.
         seg_dist = np.linalg.norm(np.diff(points, axis=0), axis=1)
-        seg_mask = np.append(True, seg_dist > 1e-3)
+        seg_mask = np.append(True, seg_dist > 1e-1)
         self.points = points[seg_mask,:]
 
         self.null = False
@@ -153,12 +198,12 @@ class MinSnap(object):
         m = self.points.shape[0]-1  # Get the number of segments
 
         # Compute the derivatives of the polynomials
-        self.x_dot_poly    = np.zeros((m, 3, 7))
-        self.x_ddot_poly   = np.zeros((m, 3, 6))
-        self.x_dddot_poly  = np.zeros((m, 3, 5))
-        self.x_ddddot_poly = np.zeros((m, 3, 4))
-        self.yaw_dot_poly = np.zeros((m, 1, 7))
-        self.yaw_ddot_poly = np.zeros((m, 1, 6))
+        self.x_dot_poly    = np.zeros((m, 3, poly_degree))
+        self.x_ddot_poly   = np.zeros((m, 3, poly_degree-1))
+        self.x_dddot_poly  = np.zeros((m, 3, poly_degree-2))
+        self.x_ddddot_poly = np.zeros((m, 3, poly_degree-3))
+        self.yaw_dot_poly = np.zeros((m, 1, yaw_poly_degree))
+        self.yaw_ddot_poly = np.zeros((m, 1, yaw_poly_degree-1))
         
         # If two or more waypoints remain, solve min snap
         if self.points.shape[0] >= 2:
@@ -169,34 +214,45 @@ class MinSnap(object):
 
             ################## Cost function
             # First get the cost segment for each matrix: 
-            H = [H_fun(self.delta_t[i]) for i in range(m)]
+            H_pos = [H_fun(self.delta_t[i], k=poly_degree) for i in range(m)]
+            H_yaw = [H_fun(self.delta_t[i], k=yaw_poly_degree) for i in range(m)]
 
             # Now concatenate these costs using block diagonal form:
-            P = block_diag(*H)
+            P_pos = block_diag(*H_pos)
+            P_yaw = block_diag(*H_yaw)
 
             # Lastly the linear term in the cost function is 0
-            q = np.zeros((8*m,1))
+            q_pos = np.zeros(((poly_degree+1)*m,1))
+            q_yaw = np.zeros(((yaw_poly_degree+1)*m, 1))
             
             ################## Constraints for each axis
-            (Ax,bx,Gx,hx) = get_1d_equality_constraints(self.points[:,0], self.delta_t, m)
-            (Ay,by,Gy,hy) = get_1d_equality_constraints(self.points[:,1], self.delta_t, m)
-            (Az,bz,Gz,hz) = get_1d_equality_constraints(self.points[:,2], self.delta_t, m)
-            (Ayaw,byaw,Gyaw,hyaw) = get_1d_equality_constraints(self.yaw, self.delta_t, m)
+            (Ax,bx,Gx,hx) = get_1d_constraints(self.points[:,0], self.delta_t, m, k=poly_degree, vmax=v_max, vstart=v_start[0], vend=v_end[0])
+            (Ay,by,Gy,hy) = get_1d_constraints(self.points[:,1], self.delta_t, m, k=poly_degree, vmax=v_max, vstart=v_start[1], vend=v_end[1])
+            (Az,bz,Gz,hz) = get_1d_constraints(self.points[:,2], self.delta_t, m, k=poly_degree, vmax=v_max, vstart=v_start[2], vend=v_end[2])
+            (Ayaw,byaw,Gyaw,hyaw) = get_1d_constraints(self.yaw, self.delta_t, m, k=yaw_poly_degree, vmax=yaw_rate_max)
 
             ################## Solve for x, y, z, and yaw
-            c_opt_x = np.linalg.solve(Ax,bx)
-            c_opt_y = np.linalg.solve(Ay,by)
-            c_opt_z = np.linalg.solve(Az,bz)
-            c_opt_yaw = np.linalg.solve(Ayaw,byaw)
+
+            ### Only in the fully constrained situation is there a unique minimum s.t. we can solve the system Ax = b.
+            # c_opt_x = np.linalg.solve(Ax,bx)
+            # c_opt_y = np.linalg.solve(Ay,by)
+            # c_opt_z = np.linalg.solve(Az,bz)
+            # c_opt_yaw = np.linalg.solve(Ayaw,byaw)
+
+            ### Otherwise, in the underconstrained case or when inequality constraints are given we solve the QP. 
+            c_opt_x = cvxopt_solve_qp(P_pos, q=q_pos, G=Gx, h=hx, A=Ax, b=bx)
+            c_opt_y = cvxopt_solve_qp(P_pos, q=q_pos, G=Gy, h=hy, A=Ay, b=by)
+            c_opt_z = cvxopt_solve_qp(P_pos, q=q_pos, G=Gz, h=hz, A=Az, b=bz)
+            c_opt_yaw = cvxopt_solve_qp(P_yaw, q=q_yaw, G=Gyaw, h=hyaw, A=Ayaw, b=byaw)
 
             ################## Construct polynomials from c_opt
-            self.x_poly = np.zeros((m, 3, 8))
-            self.yaw_poly = np.zeros((m, 1, 8))
+            self.x_poly = np.zeros((m, 3, (poly_degree+1)))
+            self.yaw_poly = np.zeros((m, 1, (yaw_poly_degree+1)))
             for i in range(m):
-                self.x_poly[i,0,:] = np.flip(c_opt_x[8*i:(8*i+8)])
-                self.x_poly[i,1,:] = np.flip(c_opt_y[8*i:(8*i+8)])
-                self.x_poly[i,2,:] = np.flip(c_opt_z[8*i:(8*i+8)])
-                self.yaw_poly[i,0,:] = np.flip(c_opt_yaw[8*i:(8*i+8)])
+                self.x_poly[i,0,:] = np.flip(c_opt_x[(poly_degree+1)*i:((poly_degree+1)*i+(poly_degree+1))])
+                self.x_poly[i,1,:] = np.flip(c_opt_y[(poly_degree+1)*i:((poly_degree+1)*i+(poly_degree+1))])
+                self.x_poly[i,2,:] = np.flip(c_opt_z[(poly_degree+1)*i:((poly_degree+1)*i+(poly_degree+1))])
+                self.yaw_poly[i,0,:] = np.flip(c_opt_yaw[(yaw_poly_degree+1)*i:((yaw_poly_degree+1)*i+(yaw_poly_degree+1))])
 
             for i in range(m):
                 for j in range(3):
@@ -273,19 +329,33 @@ if __name__=="__main__":
     import matplotlib.pyplot as plt
     from matplotlib import cm
 
-    waypoints = np.array([[0,0,0],
-                          [1,0,0],
-                          [1,1,0],
-                          [0,1,0],
-                          [0,2,0],
-                          [2,2,0]
-                          ])
-    yaw_angles = np.array([0, np.pi/2, 0, np.pi/4, 3*np.pi/2, 0])
+    # waypoints = np.array([[0,0,0],
+    #                       [1,0,0],
+    #                       [1,1,0],
+    #                       [0,1,0],
+    #                       [0,2,0],
+    #                       [2,2,0]
+    #                       ])
+    # yaw_angles = np.array([0, np.pi/2, 0, np.pi/4, 3*np.pi/2, 0])
+    # v_avg = 2
+    # v_start = [0, 0, 0]
+    # v_end = [0, 0, 0]
 
-    traj = MinSnap(waypoints, yaw_angles, v_avg=2)
+    desired_radius = 3
+    desired_freq = 0.2            # In Hz (1/s). To convert to rad/s, we multiply by 2*pi
+    v_avg = desired_radius*(desired_freq*2*np.pi)
+    v_start = [0, v_avg, 0]
+    v_end = [0, v_avg, 0]
+    num_waypoints = 20
+    waypoints = np.array([[desired_radius*np.cos(alpha), desired_radius*np.sin(alpha), 0] for alpha in np.linspace(0, 2*np.pi, num_waypoints)])
+    # yaw_angles = np.zeros(num_waypoints)
+    yaw_angles = np.array([alpha for alpha in np.linspace(0, 2*np.pi, num_waypoints)])
+
+    traj = MinSnap(waypoints, yaw_angles, v_max=5, v_avg=v_avg, v_start=v_start, v_end=v_end)
+    t_keyframes = traj.t_keyframes
 
     N = 1000
-    time = np.linspace(0,5,N)
+    time = np.linspace(0,1.1*t_keyframes[-1],N)
     x = np.zeros((N, 3))
     xdot = np.zeros((N,3))
     xddot = np.zeros((N,3))
@@ -306,12 +376,14 @@ if __name__=="__main__":
         yaw[i] = flat['yaw']
         yaw_dot[i] = flat['yaw_dot']
 
+    t_keyframes = traj.t_keyframes
 
     (fig, axes) = plt.subplots(nrows=5, ncols=1, sharex=True, num="Translational Flat Outputs")
     ax = axes[0]
     ax.plot(time, x[:,0], 'r-', label="X")
     ax.plot(time, x[:,1], 'g-', label="Y")
     ax.plot(time, x[:,2], 'b-', label="Z")
+    ax.plot(t_keyframes, waypoints, 'ko')
     ax.legend()
     ax.set_ylabel("x")
     ax = axes[1]
@@ -339,6 +411,7 @@ if __name__=="__main__":
     (fig, axes) = plt.subplots(nrows=2, ncols=1, sharex=True, num="Yaw vs Time")
     ax = axes[0]
     ax.plot(time, yaw, 'k', label="yaw")
+    ax.plot(t_keyframes, yaw_angles, 'ro')
     ax.set_ylabel("yaw")
     ax = axes[1]
     ax.plot(time, yaw_dot, 'k', label="yaw")

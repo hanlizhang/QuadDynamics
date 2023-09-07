@@ -101,11 +101,12 @@ def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
     """
 
     # input_traj = np.hstack((input_traj_thrust.reshape(-1, 1), odom_ang_vel))
-    # input_traj is sum of squares of motor speeds for 4 individual motors, col STUV
-    input_traj = sim_data[:, 18:22]
+    # input_traj is sum of squares of motor speeds for 4 individual motors, col 19-22
+    motor_speed = sim_data[:, 18:22]
+    input_traj = np.sqrt(np.sum(motor_speed**2, axis=1)).reshape(-1, 1)
 
     # debug: print the first 10 input_traj
-    print("input_traj: ", input_traj[:10, :])
+    print("input_traj: ", input_traj)
 
     # get the cost
     cost_traj = compute_cum_tracking_cost(

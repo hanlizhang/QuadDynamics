@@ -12,7 +12,7 @@ from mpl_toolkits.mplot3d import Axes3D  # Import the 3D projection
 import numpy as np
 import random
 
-from trajgen import quadratic, nonlinear_jax, nonlinear, valuefunc
+from learning.trajgen import quadratic, nonlinear_jax, nonlinear, valuefunc
 
 
 import torch
@@ -37,7 +37,7 @@ gamma = 1
 PI = np.pi
 
 
-def compute_traj(sim_data, rho=100, horizon=501, full_state=False):
+def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
     # TODO: full state
 
     # get the reference trajectory
@@ -85,33 +85,6 @@ def compute_traj(sim_data, rho=100, horizon=501, full_state=False):
     # get the angular velocity from odometry: col M-O
     odom_ang_vel = sim_data[:, 12:15]
 
-    """
-    # coverting quaternion to euler angle and get the angular velocity
-    # col BO-BR desired orientation from so3 controller(quaternion)
-    input_traj_quat = sim_data[:, 66:70]
-    # (cmd_roll, cmd_pitch, cmd_yaw) = tf.transformations.euler_from_quaternion(input_traj_quat)
-    input_traj_yaw = np.zeros(len(input_traj_quat))
-    (cmd_roll, cmd_pitch, cmd_yaw) = (
-        np.zeros(len(input_traj_quat)),
-        np.zeros(len(input_traj_quat)),
-        np.zeros(len(input_traj_quat)),
-    )
-    for i in range(len(input_traj_quat)):
-        (cmd_roll[i], cmd_pitch[i], cmd_yaw[i]) = euler.quat2euler(input_traj_quat[i])
-
-    # devided by time difference to get the angular velocity x, y, z
-    input_traj_ang_vel = (
-        np.diff(np.vstack((cmd_roll, cmd_pitch, cmd_yaw)).T, axis=0) / 0.01
-    )
-    # add the first element to the first row, so that the shape is the same as input_traj_thrust
-    input_traj_ang_vel = np.vstack((input_traj_ang_vel[0, :], input_traj_ang_vel))
-    # print("input_traj_ang_vel's shape: ", input_traj_ang_vel.shape)
-    
-    input_traj = np.hstack((input_traj_thrust.reshape(-1, 1), input_traj_ang_vel))
-    """
-
-    # input_traj = np.hstack((input_traj_thrust.reshape(-1, 1), odom_ang_vel))
-    # input_traj is sum of squares of motor speeds for 4 individual motors, col STUV
     input_traj = sim_data[:, 18:22]
 
     # debug: print the first 10 input_traj
@@ -148,14 +121,12 @@ def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho
         r0 = np.append(r0, r0[-1, :] * np.ones((N - 1, n)))
         r0 = np.reshape(r0, (horizon + N - 1, n))
 
-        # print("delta yaw: ", act[:, 3] - r0[:, 3])
-        # print("angle_wrap: ", angle_wrap(act[:, 3] - r0[:, 3]))
-        # print("yaw cost: ", angle_wrap(act[:, 3] - r0[:, 3]))
         xcost.append(
             rho
             * (
                 np.linalg.norm(act[:, :3] - r0[:, :3], axis=1) ** 2
                 + angle_wrap(act[:, 3] - r0[:, 3]) ** 2
+                # ignore the yaw error
             )
             # input_traj cost is sum of squares of motor speeds for 4 individual motors
             + np.linalg.norm(input_traj[i]) * 0.0001
@@ -354,194 +325,6 @@ def generate_polynomial_trajectory(start, end, T, order):
     return coeffs
 
 
-def load_torch_model(trained_model_state, inp_size, num_hidden):
-    # Load checkpoint
-    weights = trained_model_state.params["params"]
-
-    # Store weights of the network
-    hidden_wts = [
-        [weights["linear_0"]["kernel"], weights["linear_0"]["bias"]],
-        [weights["linear_1"]["kernel"], weights["linear_1"]["bias"]],
-        [weights["linear_2"]["kernel"], weights["linear_2"]["bias"]],
-    ]
-    linear2_wts = [weights["linear2"]["kernel"], weights["linear2"]["bias"]]
-
-    def convert_torch(x):
-        print(x.shape)
-        return torch.from_numpy(np.array(x))
-
-    # Create network
-    # inp_size = 1204
-    # inp_size = 2012
-    # num_hidden = [50, 40, 20]
-    # num_hidden = [500, 400, 200]
-    mlp_t = MLP_torch(inp_size, num_hidden)
-
-    for i in range(3):
-        mlp_t.hidden[i].weight.data = convert_torch(hidden_wts[i][0]).T
-        mlp_t.hidden[i].bias.data = convert_torch(hidden_wts[i][1])
-
-    mlp_t.linear2.weight.data = convert_torch(linear2_wts[0]).T
-    mlp_t.linear2.bias.data = convert_torch(linear2_wts[1])
-    return mlp_t
-
-
-def simple_replan(selected_waypoints, duration, order, p, vf, rho, idx):
-    """
-    Function to generate a new trajectory using the selected waypoints
-    """
-
-    # Generate time samples for the new trajectory
-    ts = np.linspace(0, duration, selected_waypoints.shape[0])
-
-    # Generate the new trajectory using the concatenated waypoints
-    _, min_jerk_coeffs = quadratic.generate(
-        selected_waypoints, ts, order, duration * 100, p, None, 0
-    )
-    new_traj_coeffs = np.zeros([p, len(selected_waypoints) - 1, order + 1])
-
-    for k in range(p):
-        for j in range(len(selected_waypoints) - 1):
-            new_traj_coeffs[k, j, :] = generate_polynomial_trajectory(
-                selected_waypoints.T[k, j], selected_waypoints.T[k, j + 1], 100, order
-            )
-
-    print("new_traj_coeffs' shape: ", new_traj_coeffs.shape)
-
-    # nn_coeffs = load_object(r"/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/nn_coeffs"+str(rho)+".pkl")
-    # import ipdb;
-    # ipdb.set_trace()
-    start = rospy.Time.now()
-    # nn_coeff = quadrotor.generate(torch.tensor(selected_waypoints.T), ts, order, duration * 100, p, rho, vf, torch.tensor(new_traj_coeffs),
-    #                              num_iter=150, lr=0.0001)
-
-    nn_coeffs = nonlinear.generate(
-        selected_waypoints,
-        ts,
-        order,
-        duration * 100,
-        p,
-        rho,
-        vf,
-        min_jerk_coeffs,
-        num_iter=100,
-        lr=0.001,
-    )
-
-    # nn_coeff = nonlinear_jax.generate(selected_waypoints, ts, order, duration * 100, p, rho, vf, new_traj_coeffs,
-    #                                  num_iter=100, lr=0.001)
-    # print("new_traj_coeffs: ", new_traj_coeffs)
-
-    end = rospy.Time.now()
-
-    generation_time = end - start
-
-    print("generation time: ", generation_time.to_sec())
-
-    # return new_traj_coeffs
-    return new_traj_coeffs, min_jerk_coeffs, nn_coeffs
-
-
-def save_object(obj, filename):
-    """
-    Function to save to a pickle file
-    :param obj:
-    :param filename:
-    :return:
-    """
-    with open(filename, "wb") as outp:  # Overwrites any existing file.
-        pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
-
-
-def load_object(str):
-    """
-    Function to load to a pickle file
-    :param str:
-    :return:
-    """
-    with open(str, "rb") as handle:
-        return pickle.load(handle)
-
-
-def test_opt(trained_model_state, aug_test_state, N, num_inf, rho):
-    """
-    Planner method that includes the learned tracking cost function and the utility cost
-    :param trained_model_state: weights of the trained model
-    :param aug_test_state: Test trajectories
-    :param N: horizon of each trajectory
-    :param num_inf: total number of test trajectories
-    :param rho: tracking penalty factor
-    :return: sim_cost, init_cost
-    """
-
-    new_aug_state = []
-
-    def calc_cost_GD(ref):
-        # forward: takes the learned parameters of your trained model and applies them to the input data ref to make predictions.
-        pred = trained_model_state.apply_fn(trained_model_state.params, ref).ravel()
-        return jnp.exp(pred[0]) * 0.1 + jnp.sum((init_ref - ref) ** 2)
-        # return jnp.exp(pred[0])
-
-    A = np.zeros((6, (N + 1) * 4))
-    A[0, 0] = 1
-    A[1, 1] = 1
-    A[2, 2] = 1
-    A[-3, -3] = 1
-    A[-2, -2] = 1
-    A[-1, -1] = 1
-
-    solution = []
-    sim_cost = []
-    init_cost = []
-    ref = []
-    rollout = []
-    times = []
-
-    for i in range(num_inf):
-        init = aug_test_state[i, 0:3]
-        goal = aug_test_state[i, -3:]
-
-        b = np.append(init, goal)
-
-        init_ref = aug_test_state[i, :].copy()
-
-        # wp = init_ref[3*ts[1]:3*(ts[1]+1)]
-        # init_val = calc_cost_GD(wp, init_ref)
-        init_val = calc_cost_GD(init_ref)
-
-        pg = ProjectedGradient(
-            calc_cost_GD, projection=projection_affine_set, maxiter=1
-        )
-        solution.append(pg.run(aug_test_state[i, :], hyperparams_proj=(A, b)))
-        prev_val = init_val
-        val = solution[i].state.error
-        cur_sol = solution[i]
-        chosen_val = val
-
-        if rho < 1:
-            loop_val = 5
-        else:
-            loop_val = 20
-        for j in range(loop_val):
-            next_sol = pg.update(cur_sol.params, cur_sol.state, hyperparams_proj=(A, b))
-            val = next_sol.state.error
-            if val < prev_val:
-                chosen_val = val
-                solution[i] = cur_sol
-            prev_val = val
-            cur_sol = next_sol
-
-        sol = solution[i]
-        new_aug_state.append(sol.params)
-        if chosen_val > init_val:
-            new_aug_state.append(init_ref)
-
-        # x0 = init_ref[0:3]
-        # ref.append(new_aug_state[3:].reshape([N, 3]))
-
-    return new_aug_state
-
-
 def main():
     # Define the lists to keep track of times for the simulations
     times_nn = []
@@ -586,139 +369,78 @@ def main():
 
     trained_model_state = restore_checkpoint(model_state, model_save)
 
-    mlp_t = load_torch_model(trained_model_state, input_size, num_hidden)
+    # mlp_t = load_torch_model(trained_model_state, input_size, num_hidden)
 
-    print(mlp_t)
+    # print(mlp_t)
 
-    vf = valuefunc.MLPValueFunc(mlp_t)
+    # vf = valuefunc.MLPValueFunc(mlp_t)
 
-    vf.network = mlp_t
+    # vf.network = mlp_t
 
-    # vf = model.bind(trained_model_state.params)
+    vf = model.bind(trained_model_state.params)
 
     # get the waypoints from circular trajectory in csv--0823
-    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/constwind_1_5_noyaw.csv"
-    data = np.loadtxt(path, delimiter=",", skiprows=1)
-    # 5 trajs in total, each traj has 502 data points
-    num_traj = 5
-    num_data = 502
+    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/const1_circle_5_init.csv"
+    data_init = np.loadtxt(path, delimiter=",", skiprows=1)
 
-    # get actual_traj for the first traj
-    actual_traj = []
-    # add yaw to actual_traj as 0
-    for i in range(num_traj):
-        actual_traj.append(data[i * num_data : (i + 1) * num_data, 1:4])
-        actual_traj[i] = np.hstack((actual_traj[i], np.zeros((num_data, 1))))
-    print("actual_traj's shape", np.array(actual_traj).shape)
-    # not list
-    actual_traj = np.array(actual_traj)
+    num_data = 502
+    rho = 1
 
     # get ref_traj for the first traj
-    ref_traj = []
-    # add yaw to ref_traj as 0
-    for i in range(num_traj):
-        ref_traj.append(data[i * num_data : (i + 1) * num_data, 21:24])
-        ref_traj[i] = np.hstack((ref_traj[i], np.zeros((num_data, 1))))
-    # print("ref traj", ref_traj[0])
-    ref_traj = np.array(ref_traj)
-
-    """
-    aug_state = []
-    # focus on the first traj
-    i = 0
-    # for i in range(num_traj):
-    r0 = ref_traj[0][i * num_data : (i + 1) * num_data, :]
-    print("ref_traj[0]'s shape", ref_traj[0].shape)
-    print("r0's shape", r0.shape)
-    act = actual_traj[0][i * num_data : (i + 1) * num_data, :]
-    print("act[0, :]'s shape", act[0, :].shape)
-    aug_state.append(np.append(act[0, :], r0))
-
-    print("aug_state's shape", np.array(aug_state).shape)
-    aug_state = np.array(aug_state)
-
-    new_aug_state = test_opt(trained_model_state, aug_state, num_data, 1, 1)
-    print("new_aug_state's shape", np.array(new_aug_state).shape)
-    print("new_aug_state", new_aug_state)
-    print("train_state", trained_model_state)
-    # visualize the new traj from new_aug_state's x, y, z
-    fig = plt.figure()
-    axes = fig.add_subplot(111, projection="3d")
-    axes.plot3D(
-        new_aug_state[0][0::4],
-        new_aug_state[0][1::4],
-        new_aug_state[0][2::4],
-        "r",
+    ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(
+        sim_data=data_init, horizon=num_data, rho=rho
     )
-    axes.set_xlim(-6, 6)
-    axes.set_zlim(0, 1)
-    axes.set_ylim(-6, 6)
-    plt.show()
-    """
 
     # extract waypoints from each traj, density is 10, interval is 50, get 10 waypoints from each traj
     density = 10
     interval = num_data // density  # 50
-    # print("interval", interval)
+    # waypoints[num_wp, p] (p = 4)
     waypoints = []
-    for i in range(num_traj):
-        # waypoints.append(traj[i][0::interval, :])
-        # no need to include last one
-        waypoints.append(actual_traj[i][0::interval, :][:-1, :])
+    for i in range(density):
+        waypoints.append(ref_traj[i * interval, :])
+    waypoints.append(ref_traj[-1, :])
 
-    # print("waypoints's shape", np.array(waypoints).shape)
+    waypoints = np.array(waypoints)
+
+    print("waypoints's shape", np.array(waypoints).shape)
     # print("waypoints", waypoints)
 
     # visualize the waypoints
     fig = plt.figure()
     axes = fig.add_subplot(111, projection="3d")
-    for i in range(num_traj):
-        axes.plot3D(waypoints[i][:, 0], waypoints[i][:, 1], waypoints[i][:, 2], "*")
+    axes.plot3D(
+        waypoints[:, 0],
+        waypoints[:, 1],
+        waypoints[:, 2],
+        "*",
+    )
     axes.set_xlim(-6, 6)
     axes.set_zlim(0, 1)
     axes.set_ylim(-6, 6)
     plt.show()
 
-    # focus on the first traj
-    i = 4
     p = 4  # num_dimensions
     order = 5
     duration = 5
-    ts = np.linspace(0, duration, len(waypoints[i]))
+    ts = np.linspace(0, duration, len(waypoints))
     # print("waypoints[i]'s shape", waypoints[i].shape)
 
     # get min_jerk_coeffs for each traj
-    _, min_jerk_coeffs = quadratic.generate(
-        waypoints[i], ts, order, num_data, p, None, 0
-    )
-    print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
+    _, min_jerk_coeffs = quadratic.generate(waypoints, ts, order, num_data, p, None, 0)
+    # print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
     # print("min_jerk_coeffs", min_jerk_coeffs)
 
     # get nn_coeffs for each traj
-    nn_coeffs = nonlinear.generate(
-        torch.tensor(waypoints[i]),
+    nn_coeffs, pred = nonlinear_jax.modify_reference(
+        waypoints,
         ts,
-        order,
         num_data,
+        order,
         p,
-        100,
         vf,
-        torch.tensor(min_jerk_coeffs),
-        num_iter=100,
-        lr=0.001,
+        min_jerk_coeffs,
     )
-    # nn_coeffs = nonlinear_jax.generate(
-    #     waypoints[i].T,
-    #     ts,
-    #     order,
-    #     duration * 100,
-    #     p,
-    #     rho,
-    #     vf,
-    #     min_jerk_coeffs,
-    #     num_iter=100,
-    #     lr=0.001,
-    # )
+
     print("nn_coeffs's shape", np.array(nn_coeffs).shape)  # (4, 9, 6)
     # print("nn_coeffs", nn_coeffs)
 
@@ -730,10 +452,42 @@ def main():
         skiprows=1,
     )
 
-    _, _, _, cost_traj_init, _ = compute_traj(sim_data=sim_data_init, horizon=num_data)
+    # visualize the ref_traj_init and actual_traj_init for init_true
+    (
+        ref_traj_init,
+        actual_traj_init,
+        input_traj_init,
+        cost_traj_init,
+        times_init,
+    ) = compute_traj(sim_data=sim_data_init, horizon=num_data)
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection="3d")
+    # red line is ref_traj_init, blue line is actual_traj_init
+    axes.plot3D(
+        ref_traj_init[:, 0],
+        ref_traj_init[:, 1],
+        ref_traj_init[:, 2],
+        "r",
+    )
+    axes.plot3D(
+        actual_traj_init[:, 0],
+        actual_traj_init[:, 1],
+        actual_traj_init[:, 2],
+        "b",
+    )
+    axes.set_xlim(-6, 6)
+    axes.set_zlim(-1, 1)
+    axes.set_ylim(-6, 6)
+    axes.set_xlabel("x")
+    axes.set_ylabel("y")
+    axes.set_zlabel("z")
+    title = "init_ref=circle"
+    axes.set_title(title)
+    plt.show()
+
     print("cost_traj's shape", np.array(cost_traj_init).shape)
     print("init_true", cost_traj_init)
-
+    """
     ## compute modified_true cost
     # Load the csv file
     sim_data_modified = np.loadtxt(
@@ -741,13 +495,43 @@ def main():
         delimiter=",",
         skiprows=1,
     )
-
-    _, _, _, cost_traj_modified, _ = compute_traj(
-        sim_data=sim_data_modified, horizon=num_data
+    # visualize the ref_traj_modified and actual_traj_modified for modified_true
+    (
+        ref_traj_modified,
+        actual_traj_modified,
+        input_traj_modified,
+        cost_traj_modified,
+        times_modified,
+    ) = compute_traj(sim_data=sim_data_modified, horizon=num_data)
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection="3d")
+    # red line is ref_traj_modified, blue line is actual_traj_modified
+    axes.plot3D(
+        ref_traj_modified[:, 0],
+        ref_traj_modified[:, 1],
+        ref_traj_modified[:, 2],
+        "r",
     )
+    axes.plot3D(
+        actual_traj_modified[:, 0],
+        actual_traj_modified[:, 1],
+        actual_traj_modified[:, 2],
+        "b",
+    )
+    axes.set_xlim(-6, 6)
+    axes.set_zlim(-1, 1)
+    axes.set_ylim(-6, 6)
+    axes.set_xlabel("x")
+    axes.set_ylabel("y")
+    axes.set_zlabel("z")
+    title = "ref=nn_coeff"
+    axes.set_title(title)
+    plt.show()
+
     print("cost_traj's shape", np.array(cost_traj_modified).shape)
     print("modified_true", cost_traj_modified)
-
+    """
+    """
     ## compute init_min_jerk cost
     # Load the csv file
     sim_data_init_min_jerk = np.loadtxt(
@@ -755,99 +539,47 @@ def main():
         delimiter=",",
         skiprows=1,
     )
-
-    _, _, _, cost_traj_init_min_jerk, _ = compute_traj(
-        sim_data=sim_data_init_min_jerk, horizon=num_data
+    # visualize the ref_traj_init_min_jerk and actual_traj_init_min_jerk for init_min_jerk
+    (
+        ref_traj_init_min_jerk,
+        actual_traj_init_min_jerk,
+        input_traj_init_min_jerk,
+        cost_traj_init_min_jerk,
+        times_init_min_jerk,
+    ) = compute_traj(sim_data=sim_data_init_min_jerk, horizon=num_data)
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection="3d")
+    # red line is ref_traj_init_min_jerk, blue line is actual_traj_init_min_jerk
+    axes.plot3D(
+        ref_traj_init_min_jerk[:, 0],
+        ref_traj_init_min_jerk[:, 1],
+        ref_traj_init_min_jerk[:, 2],
+        "r",
     )
+    axes.plot3D(
+        actual_traj_init_min_jerk[:, 0],
+        actual_traj_init_min_jerk[:, 1],
+        actual_traj_init_min_jerk[:, 2],
+        "b",
+    )
+    axes.set_xlim(-6, 6)
+    axes.set_zlim(-1, 1)
+    axes.set_ylim(-6, 6)
+    axes.set_xlabel("x")
+    axes.set_ylabel("y")
+    axes.set_zlabel("z")
+    title = "ref=min_jerk"
+    axes.set_title(title)
+    plt.show()
+
     print("cost_traj's shape", np.array(cost_traj_init_min_jerk).shape)
     print("init_min_jerk", cost_traj_init_min_jerk)
+    """
 
-    # # # # save to csv file and visualization # # #
-    # # compute pos, vel, acc, jerk, yaw, yaw_dot from min_jerk_coeffs
-    # pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot = compute_pos_vel_acc(
-    #     502, min_jerk_coeffs, min_jerk_coeffs.shape[1], ts
-    # )
-
-    # # visualize the trajectory
-    # fig = plt.figure()
-    # axes = fig.add_subplot(111, projection="3d")
-    # axes.plot3D(pos[0], pos[1], pos[2], "r")
-    # axes.set_xlim(-6, 6)
-    # axes.set_zlim(0, 1)
-    # axes.set_ylim(-6, 6)
-    # plt.show()
-
-    # # save pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot to csv file
-    # path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_min_jerk.csv"
-    # header = [
-    #     "pos_x",
-    #     "pos_y",
-    #     "pos_z",
-    #     "vel_x",
-    #     "vel_y",
-    #     "vel_z",
-    #     "acc_x",
-    #     "acc_y",
-    #     "acc_z",
-    #     "jerk_x",
-    #     "jerk_y",
-    #     "jerk_z",
-    #     "snap_x",
-    #     "snap_y",
-    #     "snap_z",
-    #     "yaw",
-    #     "yaw_dot",
-    #     "yaw_ddot",
-    # ]
-    # pos = np.array(pos).T
-    # vel = np.array(vel).T
-    # acc = np.array(acc).T
-    # jerk = np.array(jerk).T
-    # snap = np.array(snap).T
-    # yaw = np.array(yaw).reshape((-1, 1))
-    # yaw_dot = np.array(yaw_dot).reshape((-1, 1))
-    # yaw_ddot = np.array(yaw_ddot).reshape((-1, 1))
-
-    # print("pos's shape", np.array(pos).shape)
-    # print("vel's shape", np.array(vel).shape)
-    # print("acc's shape", np.array(acc).shape)
-    # print("jerk's shape", np.array(jerk).shape)
-    # print("snap's shape", np.array(snap).shape)
-    # print("yaw's shape", np.array(yaw).shape)
-    # print("yaw_dot's shape", np.array(yaw_dot).shape)
-    # print("yaw_ddot's shape", np.array(yaw_ddot).shape)
-
-    # data = np.hstack((pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot))
-    # np.savetxt(path, data, delimiter=",", header=",".join(header))
-
-
-"""
-# # # save to csv file and visualization # # #
-
-    # transform 3d tensor to numpy array with shape of (num_dimensions, num_segments, polynomial_order+1)
-    nn_coeffs = nn_coeffs.detach().numpy()
-    nn_coeffs = nn_coeffs.reshape((nn_coeffs.shape[0], -1))
-    nn_coeffs = nn_coeffs.reshape((nn_coeffs.shape[0], nn_coeffs.shape[1] // 6, 6))
-    # # pass them into simulator
-
-    # # save the tensor of nn_coeffs to csv file
-    # path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/nn_coeffs.csv"
-    # # transform 3d tensor and save to csv
-    # nn_coeffs = nn_coeffs.detach().numpy()
-    # nn_coeffs = nn_coeffs.reshape((nn_coeffs.shape[0], -1))
-    # np.savetxt(path, nn_coeffs, delimiter=",")
-
-    # # load nn_coeffs from csv file
-    # path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/nn_coeffs.csv"
-    # nn_coeffs = np.loadtxt(path, delimiter=",")
-    # nn_coeffs = nn_coeffs.reshape((nn_coeffs.shape[0], nn_coeffs.shape[1] // 6, 6))
-    # # print("nn_coeffs's shape", np.array(nn_coeffs).shape)
-    # # print("nn_coeffs", nn_coeffs)
-    # print("nn_coeffs' type", type(nn_coeffs))
-
-    # compute pos, vel, acc, jerk, yaw, yaw_dot from nn_coeffs
+    # # # save to csv file and visualization for min_jerk# # #
+    # compute pos, vel, acc, jerk, yaw, yaw_dot from min_jerk_coeffs
     pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot = compute_pos_vel_acc(
-        502, nn_coeffs, nn_coeffs.shape[1], ts
+        502, min_jerk_coeffs, min_jerk_coeffs.shape[1], ts
     )
 
     # visualize the trajectory
@@ -860,7 +592,7 @@ def main():
     plt.show()
 
     # save pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot to csv file
-    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos.csv"
+    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_min_jerk.csv"
     header = [
         "pos_x",
         "pos_y",
@@ -902,7 +634,64 @@ def main():
     data = np.hstack((pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot))
     np.savetxt(path, data, delimiter=",", header=",".join(header))
 
-"""
+    # # # save to csv file and visualization for nn# # #
+    # compute pos, vel, acc, jerk, yaw, yaw_dot from nn_coeffs
+    pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot = compute_pos_vel_acc(
+        502, nn_coeffs, nn_coeffs.shape[1], ts
+    )
+
+    # visualize the trajectory
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection="3d")
+    axes.plot3D(pos[0], pos[1], pos[2], "r")
+    axes.set_xlim(-6, 6)
+    axes.set_zlim(0, 1)
+    axes.set_ylim(-6, 6)
+    plt.show()
+
+    # save pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot to csv file
+    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_from_nn_coeff.csv"
+    header = [
+        "pos_x",
+        "pos_y",
+        "pos_z",
+        "vel_x",
+        "vel_y",
+        "vel_z",
+        "acc_x",
+        "acc_y",
+        "acc_z",
+        "jerk_x",
+        "jerk_y",
+        "jerk_z",
+        "snap_x",
+        "snap_y",
+        "snap_z",
+        "yaw",
+        "yaw_dot",
+        "yaw_ddot",
+    ]
+    pos = np.array(pos).T
+    vel = np.array(vel).T
+    acc = np.array(acc).T
+    jerk = np.array(jerk).T
+    snap = np.array(snap).T
+    yaw = np.array(yaw).reshape((-1, 1))
+    yaw_dot = np.array(yaw_dot).reshape((-1, 1))
+    yaw_ddot = np.array(yaw_ddot).reshape((-1, 1))
+
+    print("pos's shape", np.array(pos).shape)
+    print("vel's shape", np.array(vel).shape)
+    print("acc's shape", np.array(acc).shape)
+    print("jerk's shape", np.array(jerk).shape)
+    print("snap's shape", np.array(snap).shape)
+    print("yaw's shape", np.array(yaw).shape)
+    print("yaw_dot's shape", np.array(yaw_dot).shape)
+    print("yaw_ddot's shape", np.array(yaw_ddot).shape)
+
+    data = np.hstack((pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot))
+    np.savetxt(path, data, delimiter=",", header=",".join(header))
+
 
 """
 # for each traj, get min_jerk_coeffs and nn_coeffs

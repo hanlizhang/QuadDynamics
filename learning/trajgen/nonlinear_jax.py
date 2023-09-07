@@ -4,7 +4,7 @@ import jax.scipy.linalg as spl
 from .trajutils import _cost_matrix
 from jaxopt import ProjectedGradient
 from jaxopt.projection import projection_affine_set
-from nonlinear import _coeff_constr_A, _coeff_constr_b
+from learning.trajgen.nonlinear import _coeff_constr_A, _coeff_constr_b
 from jax import jit
 
 
@@ -24,7 +24,7 @@ def modify_reference(wp, ts, numsteps, order, p, regularizer, coeff0):
     A_coeff_full = spl.block_diag(*[A_coeff for i in range(p)])
     b_coeff_full = jnp.ravel(b_coeff)
 
-    @jit
+    # @jit
     def nn_cost(coeffs):
         """
         Function to compute trajectories given polynomial coefficients
@@ -42,14 +42,15 @@ def modify_reference(wp, ts, numsteps, order, p, regularizer, coeff0):
                     times,
                 )
             )
-        return (
-            coeffs.T @ cost_mat_full @ coeffs
-            + regularizer(jnp.append(wp[0, :], jnp.vstack(ref)))[0]
+        print(
+            "network cost",
+            jnp.exp(regularizer(jnp.append(wp[0, :], jnp.vstack(ref)))[0]),
         )
+        return coeffs.T @ cost_mat_full @ coeffs + jnp.exp(  # min jerk cost
+            regularizer(jnp.append(wp[0, :], jnp.vstack(ref)))[0]
+        )  # network cost
 
-    pg = ProjectedGradient(
-        nn_cost, projection=projection_affine_set, maxiter=100, jit=True
-    )
+    pg = ProjectedGradient(nn_cost, projection=projection_affine_set)
     sol = pg.run(coeff0.ravel(), hyperparams_proj=(A_coeff_full, b_coeff_full))
     coeff = sol.params
     pred = sol.state.error

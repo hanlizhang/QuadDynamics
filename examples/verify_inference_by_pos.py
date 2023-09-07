@@ -68,7 +68,7 @@ class VerifyInference:
             vehicle=quad,
             controller=SE3Control(quad_params),
             trajectory=traj,
-            wind_profile=ConstantWind(1, 1, 1),
+            wind_profile=ConstantWind(0, 0, 0),
             sim_rate=100,  # OPTIONAL: The update frequency of the simulator in Hz. Default is 100 Hz.
             imu=None,  # OPTIONAL: imu sensor object, if none is supplied it will choose a default IMU sensor.
             mocap=None,  # OPTIONAL: mocap sensor object, if none is supplied it will choose a default mocap.
@@ -107,11 +107,11 @@ class VerifyInference:
             animate_bool=True,
             animate_wind=True,
             verbose=True,
-            fname="const1_circle_5_modified.mp4",
+            fname="const1_circle_5_init_min_jerk.mp4",
         )
 
         # The save location is rotorpy/data_out/
-        sim_instance.save_to_csv("const1_circle_5_modified.csv")
+        sim_instance.save_to_csv("const1_circle_5_init_min_jerk.csv")
 
         # Instead of producing a CSV, you can manually unpack the dictionary into a Pandas DataFrame using the following:
         from rotorpy.utils.postprocessing import unpack_sim_data
@@ -123,7 +123,7 @@ class VerifyInference:
 
 if __name__ == "__main__":
     # load pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot from csv file
-    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos.csv"
+    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_min_jerk.csv"
     data = np.loadtxt(path, delimiter=",", skiprows=1)
     pos = data[:, 0:3]
     vel = data[:, 3:6]

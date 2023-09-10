@@ -51,6 +51,9 @@ def modify_reference(wp, ts, numsteps, order, p, regularizer, coeff0):
         )  # network cost
 
     pg = ProjectedGradient(nn_cost, projection=projection_affine_set)
+    print("coeff0's shape", coeff0.shape)
+    print("A_coeff_full's shape", A_coeff_full.shape)
+    print("b_coeff_full's shape", b_coeff_full.shape)
     sol = pg.run(coeff0.ravel(), hyperparams_proj=(A_coeff_full, b_coeff_full))
     coeff = sol.params
     pred = sol.state.error

@@ -150,9 +150,16 @@ def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho
                 # ignore the yaw error
             )
             # input_traj cost is sum of squares of motor speeds for 4 individual motors
-            + np.linalg.norm(input_traj[i]) * 0.0001
+            + np.linalg.norm(input_traj[i]) * (1 / horizon)
             # + np.linalg.norm(input_traj[i]) ** 2  # Removed 0.1 multiplier
         )
+        # print("cost for the input_traj: ", np.linalg.norm(input_traj[i]))
+    # print("rho: ", rho)
+    # print(
+    #     "cost for the deviation from reference: ",
+    #     np.linalg.norm(act[:, :3] - r0[:, :3], axis=1) ** 2
+    #     + angle_wrap(act[:, 3] - r0[:, 3]) ** 2,
+    # )
 
     xcost.reverse()
     cost = []
@@ -170,7 +177,7 @@ def angle_wrap(theta):
 
 def main():
     horizon = 502
-    rho = 100
+    rho = 5
 
     rhos = [0, 1, 5, 10, 20, 50, 100]
     gamma = 1
@@ -180,14 +187,14 @@ def main():
     # sim_data = load_bag("/home/anusha/dragonfly1-2023-04-12-12-18-27.bag")
     ### Load the csv file here with header
     sim_data = np.loadtxt(
-        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/constwind_1_1000_noyaw.csv",
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/sim_airdrag_yawmixed_1500.csv",
         delimiter=",",
         skiprows=1,
     )
 
     # no need times
     ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(
-        sim_data=sim_data, horizon=horizon
+        sim_data=sim_data, rho=rho, horizon=horizon
     )
 
     with open(
@@ -200,40 +207,43 @@ def main():
     batch_size = yaml_data["batch_size"]
     learning_rate = yaml_data["learning_rate"]
     num_epochs = yaml_data["num_epochs"]
-    model_save = yaml_data["save_path"]
-    #  + str(rho)
+    model_save = yaml_data["save_path"] + str(rho)
     # Construct augmented states
 
     cost_traj = cost_traj.ravel()
+    # # exp_log_cost_traj into cost_traj
+    # cost_traj = np.exp(cost_traj)
 
     # print("Costs", cost_traj)
     print("Costs shape", cost_traj.shape)
 
-    # plot the cost_traj(y) vs different radius(x), there're 10 trajectories with radius ranging from 2 to 5
-    # each trajectory has 1002 points
-    # scatter plot
-
-    radius = np.linspace(1, 10, 1000)
-    plt.scatter(radius, cost_traj)
-    plt.title("Cost vs Radius for wind speed 1")
-    plt.xlabel("Radius")
+    # scatter plot for cost_traj vs index for fixed yaw
+    plt.figure()
+    plt.scatter(range(len(cost_traj)), np.exp(cost_traj), color="b", label="Cost")
+    plt.xlabel("Trajectory Index")
     plt.ylabel("Cost")
-
-    # x axis range from 0 to 12, y axis range from 0 to 500
-    # plt.axis([0, 12, 0, 500])
-    # plt.plot(radius, cost_traj)
-    """
-    # trajs index 1 to 10
-    traj = np.linspace(1, 10, 10)
-    # x should be int
-    traj = [int(x) for x in traj]
-
-    plt.scatter(traj, cost_traj)
-    plt.title("Cost for Trajectories with Radius of 5 and Wind Speed of 1")
-    plt.xlabel("Traj index")
-    plt.ylabel("Cost")
-    """
+    plt.legend()
+    plt.title("Cost vs Trajectory Index for fixed yaw")
+    # plt.savefig("./plots/cost" + str(rho) + ".png")
     plt.show()
+
+    # plot cost of trajectories with different radii ranging from 1 to 5.5 and varying yaw angles from 0 to 2pi in 3d
+    # # 3d scatter plot for cost_traj vs radius vs yaw for fixed yaw
+    # radius = np.linspace(2, 5.5, 10)
+    # yaw = np.linspace(0, 2 * np.pi, 10)
+    # radius, yaw = np.meshgrid(radius, yaw)
+    # cost_traj = cost_traj.reshape(10, 10)
+
+    # # scatter plot for cost_traj vs radius for flexible yaw
+    # radius = np.linspace(2, 5.5, 10)
+    # plt.figure()
+    # plt.scatter(radius, cost_traj, color="b", label="Cost")
+    # plt.xlabel("Radius")
+    # plt.ylabel("Cost")
+    # plt.legend()
+    # plt.title("Cost vs Radius for flexible yaw")
+    # # plt.savefig("./plots/cost" + str(rho) + ".png")
+    # plt.show()
 
     num_traj = int(len(ref_traj) / horizon)
     print("len(ref_traj): ", len(ref_traj))

@@ -139,4 +139,4 @@ def restore_checkpoint(state, workdir):
 
 
 def save_checkpoint(state, workdir, step=0):
-    checkpoints.save_checkpoint(workdir, state, step)
+    checkpoints.save_checkpoint(workdir, state, step, overwrite=True, keep=2)

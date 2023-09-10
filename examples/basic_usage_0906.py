@@ -56,7 +56,7 @@ quad_params["c_Dx"] = quad_params["c_Dx"] * 5
 # quad_params['c_Dy'] = quad_params['c_Dy']/2  # You can also decrease the drag force on an axis too.
 
 # Set up the circular trajectory waypoints.
-desired_radius = 5
+desired_radius = 5.5
 desired_freq = 0.2  # In Hz (1/s). To convert to rad/s, we multiply by 2*pi
 v_avg = desired_radius * (
     desired_freq * 2 * np.pi
@@ -73,7 +73,7 @@ v_end = [
 ]  # Set the final velocity for the quadrotor assuming it's ending at [desired_radius, 0, 0]
 
 num_waypoints = (
-    20  # I found if waypoints < 15 the circle started looking more like an ellipse.
+    10  # I found if waypoints < 15 the circle started looking more like an ellipse.
 )
 waypoints = np.array(
     [
@@ -83,7 +83,7 @@ waypoints = np.array(
 )  # Equally spaced waypoints.
 
 yaw_angles = (
-    np.ones(num_waypoints) * 0
+    np.ones(num_waypoints) * np.pi
 )  # Use this to set a constant yaw angle for the entire length of the trajectory.
 # yaw_angles = np.array([alpha for alpha in np.linspace(0, 2*np.pi, num_waypoints)])      # This is how you would make sure the quad is always facing towards the direction of travel.
 

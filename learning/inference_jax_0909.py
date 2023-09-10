@@ -13,7 +13,7 @@ import numpy as np
 import random
 
 from learning.trajgen import quadratic, nonlinear_jax, nonlinear, valuefunc
-from examples.verify_inference_by_pos import VerifyInference
+from examples.verify_inference_0909 import VerifyInference
 
 
 import torch
@@ -380,6 +380,8 @@ def main():
 
     desired_radius = 3
     num_waypoints = 10
+    desired_freq = 0.2
+    v_avg = desired_radius * (desired_freq * 2 * np.pi)
 
     waypoints = np.array(
         [
@@ -387,6 +389,8 @@ def main():
             for alpha in np.linspace(0, 2 * np.pi, num_waypoints)
         ]
     )
+
+    yaw_angles = np.array(0 * np.ones(num_waypoints))
 
     # visualize the waypoints
     fig = plt.figure()
@@ -402,6 +406,45 @@ def main():
     axes.set_ylim(-6, 6)
     plt.show()
 
+    # generate min_jerk trajectory and run simulation
+    fname_minjerk = f"min_jerk_init_{rho}"
+
+    init_inference_results = VerifyInference(
+        waypoints,
+        yaw_angles,
+        poly_degree=7,
+        yaw_poly_degree=7,
+        v_max=15,
+        v_avg=v_avg,
+        v_start=[0, v_avg, 0],
+        v_end=[0, v_avg, 0],
+        use_neural_network=False,
+        regularizer=None,
+        fname=fname_minjerk,
+    )
+
+    init_inference_results.run_simulation()
+
+    # generate nn trajectory and run simulation
+    fname_nn = f"nn_modified_{rho}"
+
+    modified_inference_results = VerifyInference(
+        waypoints,
+        yaw_angles,
+        poly_degree=7,
+        yaw_poly_degree=7,
+        v_max=15,
+        v_avg=v_avg,
+        v_start=[0, v_avg, 0],
+        v_end=[0, v_avg, 0],
+        use_neural_network=True,
+        regularizer=vf,
+        fname=fname_nn,
+    )
+
+    modified_inference_results.run_simulation()
+
+    """
     # add yaw=0 to waypoints
     waypoints = np.hstack((waypoints, np.zeros((num_waypoints, 1))))
     print("waypoints's shape", np.array(waypoints).shape)
@@ -488,11 +531,11 @@ def main():
     )
 
     modified_inference_results.run_simulation()
-
+    """
     ## compute init_min_jerk cost
     # Load the csv file
     sim_data_init_min_jerk = np.loadtxt(
-        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/" + fname + ".csv",
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/" + fname_minjerk + ".csv",
         delimiter=",",
         skiprows=1,
     )

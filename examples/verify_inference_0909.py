@@ -7,69 +7,75 @@ from rotorpy.vehicles.multirotor import Multirotor
 
 from rotorpy.vehicles.crazyflie_params import quad_params
 
-# from rotorpy.vehicles.crazyflie_params import (
-#     quad_params,
-# )  # There's also the Hummingbird
-
 # You will also need a controller (currently there is only one) that works for your vehicle.
 from rotorpy.controllers.quadrotor_control import SE3Control
 
 # And a trajectory generator
-from rotorpy.trajectories.pos_traj import PosTraj
+from rotorpy.trajectories.minsnap import MinSnap
 
 # You can optionally specify a wind generator, although if no wind is specified it will default to NoWind().
-from rotorpy.wind.default_winds import NoWind, ConstantWind, SinusoidWind, LadderWind
-
-# You can also optionally customize the IMU and motion capture sensor models. If not specified, the default parameters will be used.
-from rotorpy.sensors.imu import Imu
-from rotorpy.sensors.external_mocap import MotionCapture
-
-# You can also specify a state estimator. This is optional. If no state estimator is supplied it will default to null.
-from rotorpy.estimators.wind_ukf import WindUKF
-
-# Compute the body rate
-from learning.compute_body_rate import *
+from rotorpy.wind.default_winds import ConstantWind
 
 # Other useful imports
 import numpy as np  # For array creation/manipulation
 import matplotlib.pyplot as plt  # For plotting, although the simulator has a built in plotter
-from scipy.spatial.transform import (
-    Rotation,
-)  # For doing conversions between different rotation descriptions, applying rotations, etc.
-import os  # For path generation
 
 
 class VerifyInference:
-    def __init__(self, pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot, fname):
-        self.pos = pos.T
-        self.vel = vel.T
-        self.acc = acc.T
-        self.jerk = jerk.T
-        self.snap = snap.T
-        self.yaw = yaw
-        self.yaw_dot = yaw_dot
-        self.yaw_ddot = yaw_ddot
-        # self.yaw = np.reshape(yaw, (-1, 1))
-        # self.yaw_dot = np.reshape(yaw_dot, (-1, 1))
-        # self.yaw_ddot = np.reshape(yaw_ddot, (-1, 1))
-        print("self.yaw's shape", self.yaw.shape)
+    def __init__(
+        self,
+        points,
+        yaw_angles=None,
+        poly_degree=7,
+        yaw_poly_degree=7,
+        v_max=3,
+        v_avg=1,
+        v_start=[0, 0, 0],
+        v_end=[0, 0, 0],
+        use_neural_network=False,
+        regularizer=None,
+        fname=None,
+    ):
+        self.points = points
+        self.yaw_angles = yaw_angles
+        self.poly_degree = poly_degree
+        self.yaw_poly_degree = yaw_poly_degree
+        self.v_max = v_max
+        self.v_avg = v_avg
+        self.v_start = v_start
+        self.v_end = v_end
+        self.use_neural_network = use_neural_network
+        self.regularizer = regularizer
         self.fname = fname
 
     def run_simulation(self):
         # An instance of the simulator can be generated as follows:
-        pos = self.pos
-        vel = self.vel
-        acc = self.acc
-        jerk = self.jerk
-        snap = self.snap
-        yaw = self.yaw
-        yaw_dot = self.yaw_dot
-        yaw_ddot = self.yaw_ddot
+        points = self.points
+        yaw_angles = self.yaw_angles
+        poly_degree = self.poly_degree
+        yaw_poly_degree = self.yaw_poly_degree
+        v_max = self.v_max
+        v_avg = self.v_avg
+        v_start = self.v_start
+        v_end = self.v_end
+        use_neural_network = self.use_neural_network
+        regularizer = self.regularizer
         fname = self.fname
 
         # change the drag coefficient by increasing it on only one axis.
         quad_params["c_Dx"] = quad_params["c_Dx"] * 5
-        traj = PosTraj(pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot)
+        traj = MinSnap(
+            points,
+            yaw_angles,
+            poly_degree,
+            yaw_poly_degree,
+            v_max=15,
+            v_avg=v_avg,
+            v_start=[0, v_avg, 0],
+            v_end=[0, v_avg, 0],
+            use_neural_network=use_neural_network,
+            regularizer=regularizer,
+        )
         quad = Multirotor(quad_params)
 
         sim_instance = Environment(

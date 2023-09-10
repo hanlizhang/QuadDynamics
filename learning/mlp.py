@@ -35,7 +35,8 @@ class MLP(nn.Module):
             # import pdb;
             # pdb.set_trace()
             x = self.linear[i](x)
-            x = nn.elu(x)
+            # x = nn.elu(x)
+            x = nn.relu(x)
         x = self.linear2(x)
         return x
         # return x ** 2
@@ -71,3 +72,23 @@ class MLP_torch(tnn.Module):
         """The general prediction for NN value functions"""
         d0 = torch.cat([x0, ref]).double()
         return self.network(d0.unsqueeze(0))[0]
+
+
+class CNN(nn.Module):
+    num_hidden: list
+    num_outputs: int
+
+    def setup(self):
+        self.conv = [
+            nn.Conv(features=self.num_hidden[i], kernel_size=(10,))
+            for i in range(len(self.num_hidden))
+        ]
+        self.linear = nn.Dense(features=self.num_outputs)
+
+    def __call__(self, x):
+        for i in range(len(self.num_hidden)):
+            x = self.conv[i](x)
+            x = nn.relu(x)
+            # x = nn.avg_pool(x, window_shape=5, strides=2)
+        x = self.linear(x)
+        return x

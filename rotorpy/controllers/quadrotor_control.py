@@ -5,11 +5,15 @@ class SE3Control(object):
     """
 
     """
-    def __init__(self, quad_params):
+    def __init__(self, quad_params, drag_compensation=False):
         """
         Parameters:
             quad_params, dict with keys specified in rotorpy/vehicles
+            drag_compensation, bool to determine whether or not the controller computes attitude by trying to compensate for drag forces. 
         """
+
+        # Drag compensation boolean
+        self.drag_compensation = drag_compensation
 
         # Quadrotor physical parameters.
         # Inertial parameters
@@ -203,7 +207,10 @@ class SE3Control(object):
             """Return vector corresponding to given skew symmetric matrix."""
             return np.array([-S[1,2], S[0,2], -S[0,1]])
 
-        # Desired force vector.
+        R = Rotation.from_quat(state['q']).as_matrix()
+        P = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0]])  # Project matrix to the body XY frame. 
+
+        # Desired force vector (no drag).
         pos_err  = state['x'] - flat_output['x']
         dpos_err = state['v'] - flat_output['x_dot']
         F_des = self.mass * (- self.kp_pos*pos_err
@@ -212,12 +219,15 @@ class SE3Control(object):
                              + np.array([0, 0, self.g]))
 
         # Desired thrust is force projects onto b3 axis.
-        R = Rotation.from_quat(state['q']).as_matrix()
+        
         b3 = R @ np.array([0, 0, 1])
         u1 = np.dot(F_des, b3)
 
         # Desired orientation to obtain force vector.
-        b3_des = normalize(F_des)
+        if not self.drag_compensation:
+            b3_des = normalize(F_des)
+        else:
+            b3_des = normalize(self.k_d*np.sum(state['rotor_speeds'])*state['v'] + F_des)
         yaw_des = flat_output['yaw']
         c1_des = np.array([np.cos(yaw_des), np.sin(yaw_des), 0])
         b2_des = normalize(np.cross(b3_des, c1_des))

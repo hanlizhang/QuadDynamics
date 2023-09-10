@@ -226,27 +226,55 @@ def main():
     # Create a list to store all the simulation data
     all_simulation_data = []
 
-    # Create a list of radii ranging from 2 to 5
-    radii = np.linspace(1, 10, 1000)
-    # # generate trajectories for one radius 10 times
-    # radii = np.ones(10) * 5
+    # change the drag coefficient by increasing it on only one axis.
+    quad_params["c_Dx"] = quad_params["c_Dx"] * 5
+    # quad_params['c_Dy'] = quad_params['c_Dy']/2  # You can also decrease the drag force on an axis too.
+    quad = Multirotor(quad_params)
+
+    # Set up the circular trajectory waypoints.
+    desired_freq = 0.2  # In Hz (1/s). To convert to rad/s, we multiply by 2*pi
+
+    num_waypoints = 10
+
+    yaw_angles = np.array(
+        [alpha for alpha in np.linspace(0, 2 * np.pi, num_waypoints)]
+    )  # This is how you would make sure the quad is always facing towards the direction of travel.
+
+    # Create a list of radii ranging from 1 to 8 meters
+    desired_radius = np.linspace(1, 5, 1000)
 
     # Loop through each radius and generate the circular trajectory simulation
-    for idx, radius in enumerate(radii):
-        print(
-            f"Running simulation for circular trajectory {idx + 1} with radius {radius}..."
-        )
+    idx = 0
+    for radius in desired_radius:
+        idx = idx + 1
+        print(f"Running simulation for circular trajectory {idx} with radius {radius}")
 
         # Instantiate the circular trajectory with the current radius
-        traj = CircularTraj(radius=radius)
-        quad = Multirotor(quad_params)
+        v_avg = radius * (
+            desired_freq * 2 * np.pi
+        )  # Get the average speed by multiplying radius by frequency (units should be m/s)
+        waypoints = np.array(
+            [
+                [radius * np.cos(alpha), radius * np.sin(alpha), 0]
+                for alpha in np.linspace(0, 2 * np.pi, num_waypoints)
+            ]
+        )  # Equally spaced waypoints.
+        # Set up trajectory.
+        traj = MinSnap(
+            waypoints,
+            yaw_angles,
+            v_max=15,
+            v_avg=v_avg,
+            v_start=[0, v_avg, 0],
+            v_end=[0, v_avg, 0],
+        )
 
         # Instantiate the simulator environment
         sim_instance = Environment(
             vehicle=quad,  # vehicle object, must be specified.
             controller=SE3Control(quad_params),  # controller object, must be specified.
             trajectory=traj,
-            wind_profile=ConstantWind(1, 1, 1),
+            wind_profile=NoWind(),
             sim_rate=100,  # OPTIONAL: The update frequency of the simulator in Hz. Default is 100 Hz.
             imu=None,  # OPTIONAL: imu sensor object, if none is supplied it will choose a default IMU sensor.
             mocap=None,  # OPTIONAL: mocap sensor object, if none is supplied it will choose a default mocap.
@@ -296,8 +324,9 @@ def main():
     # Concatenate all simulation data DataFrames into one
     concatenated_data = pd.concat(all_simulation_data, ignore_index=False)
 
-    # Save all the trajectories' simulation data into one CSV file called constwind_1.csv
-    save_to_csv(concatenated_data, "constwind_1_1000_noyaw")
+    # Save all the trajectories' simulation data into one CSV file with timestamp of the current date and time as part of the name
+    current_time = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    save_to_csv(concatenated_data, f"sim_airgrag_yawtravel_{current_time}.csv")
 
     print("All simulations completed!")
 

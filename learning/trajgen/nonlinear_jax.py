@@ -8,7 +8,18 @@ from learning.trajgen.nonlinear import _coeff_constr_A, _coeff_constr_b
 from jax import jit
 
 
-def modify_reference(wp, ts, numsteps, order, p, regularizer, coeff0):
+def modify_reference(
+    wp,
+    ts,
+    numsteps,
+    order,
+    p,
+    regularizer,
+    cost_mat_full,
+    A_coeff_full,
+    b_coeff_full,
+    coeff0,
+):
     """
     Running projected gradient descent on the neural network cost + min snap cost with constraints
     """
@@ -16,13 +27,13 @@ def modify_reference(wp, ts, numsteps, order, p, regularizer, coeff0):
     n = coeff0.shape[2]
     num_coeffs = np.prod(coeff0.shape[1:])
     durations = ts[1:] - ts[:-1]
-    cost_mat = spl.block_diag(*[_cost_matrix(order, num_seg, d) for d in durations])
-    A_coeff = _coeff_constr_A(ts, n, num_coeffs)
-    b_coeff = _coeff_constr_b(wp.T, ts, n)
+    # cost_mat = spl.block_diag(*[_cost_matrix(order, num_seg, d) for d in durations])
+    # A_coeff = _coeff_constr_A(ts, n, num_coeffs)
+    # b_coeff = _coeff_constr_b(wp.T, ts, n)
 
-    cost_mat_full = spl.block_diag(*[cost_mat for i in range(p)])
-    A_coeff_full = spl.block_diag(*[A_coeff for i in range(p)])
-    b_coeff_full = jnp.ravel(b_coeff)
+    # cost_mat_full = spl.block_diag(*[cost_mat for i in range(p)])
+    # A_coeff_full = spl.block_diag(*[A_coeff for i in range(p)])
+    # b_coeff_full = jnp.ravel(b_coeff)
 
     # @jit
     def nn_cost(coeffs):
@@ -49,11 +60,22 @@ def modify_reference(wp, ts, numsteps, order, p, regularizer, coeff0):
         return coeffs.T @ cost_mat_full @ coeffs + jnp.exp(  # min jerk cost
             regularizer(jnp.append(wp[0, :], jnp.vstack(ref)))[0]
         )  # network cost
+        # return jnp.exp(  # min jerk cost
+        #     regularizer(jnp.append(wp[0, :], jnp.vstack(ref)))[0]
+        # )  # network cost
 
-    pg = ProjectedGradient(nn_cost, projection=projection_affine_set)
+    pg = ProjectedGradient(nn_cost, projection=projection_affine_set, maxiter=1)
     print("coeff0's shape", coeff0.shape)
     print("A_coeff_full's shape", A_coeff_full.shape)
     print("b_coeff_full's shape", b_coeff_full.shape)
+    # flip the order of the coefficients for coeff0
+    print("coeff0 first 10", coeff0[0, 0, :])
+    print("coeff0 second segment first 10", coeff0[0, 1, :])
+    for i in range(p):
+        coeff0[i, :, :] = coeff0[i, :, ::-1]
+    print("coeff0 first 10 after flipping: ", coeff0[0, 0, :])
+    print("coeff0 second segment first 10 after flipping: ", coeff0[0, 1, :])
+
     sol = pg.run(coeff0.ravel(), hyperparams_proj=(A_coeff_full, b_coeff_full))
     coeff = sol.params
     pred = sol.state.error

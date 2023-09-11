@@ -63,7 +63,7 @@ class VerifyInference:
         fname = self.fname
 
         # change the drag coefficient by increasing it on only one axis.
-        quad_params["c_Dx"] = quad_params["c_Dx"] * 5
+        # quad_params["c_Dx"] = quad_params["c_Dx"] * 5
         traj = MinSnap(
             points,
             yaw_angles,
@@ -118,10 +118,11 @@ class VerifyInference:
             plot_mocap=False,
             plot_estimator=False,
             plot_imu=False,
-            animate_bool=True,
+            animate_bool=False,
             animate_wind=True,
             verbose=True,
-            fname=fname + ".mp4",
+            # fname=fname + ".mp4",
+            fname=None,
         )
 
         # The save location is rotorpy/data_out/

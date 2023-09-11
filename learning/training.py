@@ -24,6 +24,8 @@ import transforms3d.euler as euler
 from itertools import accumulate
 from sklearn.model_selection import train_test_split
 
+from scipy.spatial.transform import Rotation as R
+
 gamma = 1
 
 
@@ -49,24 +51,26 @@ def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
     # col I-L quaternion
     actual_traj_quat = sim_data[:, 8:12]
     # quat2euler takes a 4 element sequence: w, x, y, z of quaternion
-    actual_traj_quat = np.hstack((actual_traj_quat[:, 3:4], actual_traj_quat[:, 0:3]))
+    # actual_traj_quat = np.hstack((actual_traj_quat[:, 3:4], actual_traj_quat[:, 0:3]))
     # (cur_roll, cur_pitch, cur_yaw) = tf.transformations.euler_from_quaternion(actual_traj_quat)
     # 4 element sequence: w, x, y, z of quaternion
     # print("actual_traj_quat's shape: ", actual_traj_quat.shape)
-    actual_yaw = np.zeros(len(actual_traj_quat))
-    (cur_roll, cur_pitch, cur_yaw) = (
-        np.zeros(len(actual_traj_quat)),
-        np.zeros(len(actual_traj_quat)),
-        np.zeros(len(actual_traj_quat)),
-    )
-    for i in range(len(actual_traj_quat)):
-        (cur_roll[i], cur_pitch[i], cur_yaw[i]) = euler.quat2euler(actual_traj_quat[i])
-        actual_yaw[i] = cur_yaw[i]
-    actual_traj = np.vstack((actual_traj_x, actual_traj_y, actual_traj_z, actual_yaw)).T
+    # actual_yaw = np.zeros(len(actual_traj_quat))
+    # (cur_roll, cur_pitch, cur_yaw) = (
+    #     np.zeros(len(actual_traj_quat)),
+    #     np.zeros(len(actual_traj_quat)),
+    #     np.zeros(len(actual_traj_quat)),
+    # )
+    # for i in range(len(actual_traj_quat)):
+    #     (cur_roll[i], cur_pitch[i], cur_yaw[i]) = euler.quat2euler(actual_traj_quat[i])
+    #     actual_yaw[i] = cur_yaw[i]
+    # actual_traj = np.vstack((actual_traj_x, actual_traj_y, actual_traj_z, actual_yaw)).T
     # debug: print the first 10 actual_traj
-    print("actual_traj: ", actual_traj[:10, :])
+    # print("actual_traj: ", actual_traj[:10, :])
     # print("actual_traj's type: ", type(actual_traj))
-
+    euler_actual = R.from_quat(actual_traj_quat).as_euler("zyx", degrees=False)
+    actual_yaw = euler_actual[:, 0]
+    actual_traj = np.vstack((actual_traj_x, actual_traj_y, actual_traj_z, actual_yaw)).T
     # get the cmd input
     # col BN desired thrust from so3 controller
     input_traj_thrust = sim_data[:, 65]
@@ -106,7 +110,7 @@ def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
     input_traj = np.sqrt(np.sum(motor_speed**2, axis=1)).reshape(-1, 1)
 
     # debug: print the first 10 input_traj
-    print("input_traj: ", input_traj)
+    print("input_traj_motorspeed: ", input_traj)
 
     # get the cost
     cost_traj = compute_cum_tracking_cost(
@@ -177,7 +181,7 @@ def angle_wrap(theta):
 
 def main():
     horizon = 502
-    rho = 5
+    rho = 0.01
 
     rhos = [0, 1, 5, 10, 20, 50, 100]
     gamma = 1

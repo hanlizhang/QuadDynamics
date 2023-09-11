@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import scipy.linalg as spl
 
-from trajgen.trajutils import _diff_coeff, _facln, _cost_matrix
+from learning.trajgen.trajutils import _diff_coeff, _facln, _cost_matrix
 
 
 class MinJerkReg(nn.Module):

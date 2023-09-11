@@ -272,9 +272,7 @@ def main():
         # Instantiate the simulator environment
         sim_instance = Environment(
             vehicle=quad,  # vehicle object, must be specified.
-            controller=SE3Control(
-                quad_params, drag_compensation=True
-            ),  # controller object, must be specified.
+            controller=SE3Control(quad_params),  # controller object, must be specified.
             trajectory=traj,
             wind_profile=NoWind(),
             sim_rate=100,  # OPTIONAL: The update frequency of the simulator in Hz. Default is 100 Hz.
@@ -352,9 +350,7 @@ def main():
         # Instantiate the simulator environment
         sim_instance = Environment(
             vehicle=quad,  # vehicle object, must be specified.
-            controller=SE3Control(
-                quad_params, drag_compensation=True
-            ),  # controller object, must be specified.
+            controller=SE3Control(quad_params),  # controller object, must be specified.
             trajectory=traj,
             wind_profile=NoWind(),
             sim_rate=100,  # OPTIONAL: The update frequency of the simulator in Hz. Default is 100 Hz.
@@ -496,16 +492,14 @@ def main():
 
     # Save all the trajectories' simulation data into one CSV file with timestamp of the current date and time as part of the name
     current_time = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    # # add one column for the csv file to indicate the radius of the trajectory
-    # concatenated_data["radius"] = np.concatenate(
-    #     [np.ones(500) * radius for radius in desired_radius]
-    # )
-    # concatenated_data["yaw"] = np.concatenate(
-    #     [np.ones(100) * yaw for yaw in yaw_values]
-    # )
-    save_to_csv(
-        concatenated_data, f"sim_airgrag_yawmixed_drag_compensation_{current_time}.csv"
+    # add one column for the csv file to indicate the radius of the trajectory
+    concatenated_data["radius"] = np.concatenate(
+        [np.ones(500) * radius for radius in desired_radius]
     )
+    concatenated_data["yaw"] = np.concatenate(
+        [np.ones(100) * yaw for yaw in yaw_values]
+    )
+    save_to_csv(concatenated_data, f"sim_airgrag_yawmixed_{current_time}.csv")
 
     print("All simulations completed!")
 

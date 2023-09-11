@@ -89,7 +89,7 @@ def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
     input_traj = sim_data[:, 18:22]
 
     # debug: print the first 10 input_traj
-    print("input_traj: ", input_traj[:10, :])
+    print("input_traj_motorspeed: ", input_traj[:10, :])
 
     # get the cost
     cost_traj = compute_cum_tracking_cost(

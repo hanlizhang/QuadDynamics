@@ -33,6 +33,8 @@ import jax.numpy as jnp
 import transforms3d.euler as euler
 from itertools import accumulate
 
+from scipy.spatial.transform import Rotation as R
+
 gamma = 1
 
 PI = np.pi
@@ -60,23 +62,24 @@ def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
     # col I-L quaternion
     actual_traj_quat = sim_data[:, 8:12]
     # quat2euler takes a 4 element sequence: w, x, y, z of quaternion
-    actual_traj_quat = np.hstack((actual_traj_quat[:, 3:4], actual_traj_quat[:, 0:3]))
+    # actual_traj_quat = np.hstack((actual_traj_quat[:, 3:4], actual_traj_quat[:, 0:3]))
     # (cur_roll, cur_pitch, cur_yaw) = tf.transformations.euler_from_quaternion(actual_traj_quat)
     # 4 element sequence: w, x, y, z of quaternion
     # print("actual_traj_quat's shape: ", actual_traj_quat.shape)
-    actual_yaw = np.zeros(len(actual_traj_quat))
-    (cur_roll, cur_pitch, cur_yaw) = (
-        np.zeros(len(actual_traj_quat)),
-        np.zeros(len(actual_traj_quat)),
-        np.zeros(len(actual_traj_quat)),
-    )
-    for i in range(len(actual_traj_quat)):
-        (cur_roll[i], cur_pitch[i], cur_yaw[i]) = euler.quat2euler(actual_traj_quat[i])
-        actual_yaw[i] = cur_yaw[i]
+    # actual_yaw = np.zeros(len(actual_traj_quat))
+    # (cur_roll, cur_pitch, cur_yaw) = (
+    #     np.zeros(len(actual_traj_quat)),
+    #     np.zeros(len(actual_traj_quat)),
+    #     np.zeros(len(actual_traj_quat)),
+    # )
+    # for i in range(len(actual_traj_quat)):
+    #     (cur_roll[i], cur_pitch[i], cur_yaw[i]) = euler.quat2euler(actual_traj_quat[i])
+    #     actual_yaw[i] = cur_yaw[i]
+    euler_actual = R.from_quat(actual_traj_quat).as_euler("zyx", degrees=False)
+    actual_yaw = euler_actual[:, 0]
     actual_traj = np.vstack((actual_traj_x, actual_traj_y, actual_traj_z, actual_yaw)).T
     # debug: print the first 10 actual_traj
     print("actual_traj: ", actual_traj[:10, :])
-    # print("actual_traj's type: ", type(actual_traj))
 
     # get the cmd input
     # col BN desired thrust from so3 controller
@@ -89,10 +92,10 @@ def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
     input_traj = sim_data[:, 18:22]
 
     # debug: print the first 10 input_traj
-    print("input_traj: ", input_traj[:10, :])
+    print("input_traj_motorspeed: ", input_traj[:10, :])
 
     # get the cost
-    cost_traj = compute_cum_tracking_cost(
+    cost_traj = compute_tracking_error(
         ref_traj, actual_traj, input_traj, horizon, horizon, rho
     )
     # debug: print the first 10 cost_traj
@@ -101,16 +104,7 @@ def compute_traj(sim_data, rho=1, horizon=501, full_state=False):
     return ref_traj, actual_traj, input_traj, cost_traj, sim_data[:, 0]
 
 
-def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho):
-    # print type of input
-    print("ref_traj's type: ", type(ref_traj))
-    print("actual_traj's type: ", type(actual_traj))
-    print("input_traj's type: ", type(input_traj))
-
-    import ipdb
-
-    # ipdb.set_trace()
-
+def compute_tracking_error(ref_traj, actual_traj, input_traj, horizon, N, rho):
     m, n = ref_traj.shape
     num_traj = int(m / horizon)
     xcost = []
@@ -329,7 +323,7 @@ def main():
     times_poly = []
 
     # Initialize neural network
-    rho = 5
+    rho = 0.01
     input_size = 2012
     num_data = 502
 
@@ -368,17 +362,9 @@ def main():
 
     trained_model_state = restore_checkpoint(model_state, model_save)
 
-    # mlp_t = load_torch_model(trained_model_state, input_size, num_hidden)
-
-    # print(mlp_t)
-
-    # vf = valuefunc.MLPValueFunc(mlp_t)
-
-    # vf.network = mlp_t
-
     vf = model.bind(trained_model_state.params)
 
-    desired_radius = 3
+    desired_radius = 2
     num_waypoints = 10
     desired_freq = 0.2
     v_avg = desired_radius * (desired_freq * 2 * np.pi)
@@ -390,7 +376,8 @@ def main():
         ]
     )
 
-    yaw_angles = np.array(0 * np.ones(num_waypoints))
+    yaw_angles = np.ones(num_waypoints)
+    # yaw_
 
     # visualize the waypoints
     fig = plt.figure()
@@ -406,8 +393,8 @@ def main():
     axes.set_ylim(-6, 6)
     plt.show()
 
-    # generate min_jerk trajectory and run simulation
-    fname_minjerk = f"min_jerk_init_{rho}"
+    # generate min_snap trajectory and run simulation
+    fname_minsnap = f"min_snap_init_{rho}"
 
     init_inference_results = VerifyInference(
         waypoints,
@@ -420,7 +407,7 @@ def main():
         v_end=[0, v_avg, 0],
         use_neural_network=False,
         regularizer=None,
-        fname=fname_minjerk,
+        fname=fname_minsnap,
     )
 
     init_inference_results.run_simulation()
@@ -444,137 +431,51 @@ def main():
 
     modified_inference_results.run_simulation()
 
-    """
-    # add yaw=0 to waypoints
-    waypoints = np.hstack((waypoints, np.zeros((num_waypoints, 1))))
-    print("waypoints's shape", np.array(waypoints).shape)
-
-    p = 4  # num_dimensions
-    order = 5
-    duration = 5
-    ts = np.linspace(0, duration, len(waypoints))
-    # print("waypoints[i]'s shape", waypoints[i].shape)
-
-    # get min_jerk_coeffs for each traj
-    _, min_jerk_coeffs = quadratic.generate(waypoints, ts, order, num_data, p, None, 0)
-    print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
-    # print("min_jerk_coeffs", min_jerk_coeffs)
-    # set 4th coeff for yaw to 0
-    # min_jerk_coeffs[3, :, :] = 0.0
-
-    # get pos_init, vel_init, acc_init, jerk_init, snap_init, yaw_init, yawdot_init, yawddot_init for each traj
-    (
-        pos_init,
-        vel_init,
-        acc_init,
-        jerk_init,
-        snap_init,
-        yaw_init,
-        yawdot_init,
-        yawddot_init,
-    ) = compute_pos_vel_acc(num_data, min_jerk_coeffs, num_waypoints - 1, ts)
-
-    fname = f"min_jerk_init_{rho}"
-
-    init_inference_results = VerifyInference(
-        pos_init,
-        vel_init,
-        acc_init,
-        jerk_init,
-        snap_init,
-        yaw_init,
-        yawdot_init,
-        yawddot_init,
-        fname,
-    )
-
-    init_inference_results.run_simulation()
-
-    # get nn_coeffs for each traj
-    nn_coeffs, pred = nonlinear_jax.modify_reference(
-        waypoints,
-        ts,
-        num_data,
-        order,
-        p,
-        vf,
-        min_jerk_coeffs,
-    )
-
-    print("nn_coeffs's shape", np.array(nn_coeffs).shape)  # (4, 9, 6)
-    # print("nn_coeffs", nn_coeffs)
-
-    # get pos_nn, vel_nn, acc_nn, jerk_nn, snap_nn, yaw_nn, yawdot_nn, yawddot_nn for each traj
-    (
-        pos_nn,
-        vel_nn,
-        acc_nn,
-        jerk_nn,
-        snap_nn,
-        yaw_nn,
-        yawdot_nn,
-        yawddot_nn,
-    ) = compute_pos_vel_acc(num_data, nn_coeffs, num_waypoints - 1, ts)
-
-    fname_nn = f"nn_modified_{rho}"
-
-    modified_inference_results = VerifyInference(
-        pos_nn,
-        vel_nn,
-        acc_nn,
-        jerk_nn,
-        snap_nn,
-        yaw_nn,
-        yawdot_nn,
-        yawddot_nn,
-        fname_nn,
-    )
-
-    modified_inference_results.run_simulation()
-    """
-    ## compute init_min_jerk cost
+    ## compute init_min_snap cost
     # Load the csv file
-    sim_data_init_min_jerk = np.loadtxt(
-        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/" + fname_minjerk + ".csv",
+    sim_data_init_min_snap = np.loadtxt(
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/" + fname_minsnap + ".csv",
         delimiter=",",
         skiprows=1,
     )
-    print("sim_data_init_min_jerk's type", type(sim_data_init_min_jerk))
-    # visualize the ref_traj_init_min_jerk and actual_traj_init_min_jerk for init_min_jerk
+    print("sim_data_init_min_snap's type", type(sim_data_init_min_snap))
+    # visualize the ref_traj_init_min_snap and actual_traj_init_min_snap for init_min_snap
     (
-        ref_traj_init_min_jerk,
-        actual_traj_init_min_jerk,
-        input_traj_init_min_jerk,
-        cost_traj_init_min_jerk,
-        times_init_min_jerk,
-    ) = compute_traj(sim_data=sim_data_init_min_jerk, horizon=num_data)
+        ref_traj_init_min_snap,
+        actual_traj_init_min_snap,
+        input_traj_init_min_snap,
+        cost_traj_init_min_snap,
+        times_init_min_snap,
+    ) = compute_traj(sim_data=sim_data_init_min_snap, horizon=num_data)
     fig = plt.figure()
     axes = fig.add_subplot(111, projection="3d")
-    # red line is ref_traj_init_min_jerk, blue line is actual_traj_init_min_jerk
+    # red line is ref_traj_init_min_snap, blue line is actual_traj_init_min_snap
     axes.plot3D(
-        ref_traj_init_min_jerk[:, 0],
-        ref_traj_init_min_jerk[:, 1],
-        ref_traj_init_min_jerk[:, 2],
+        ref_traj_init_min_snap[:, 0],
+        ref_traj_init_min_snap[:, 1],
+        ref_traj_init_min_snap[:, 2],
         "r",
     )
     axes.plot3D(
-        actual_traj_init_min_jerk[:, 0],
-        actual_traj_init_min_jerk[:, 1],
-        actual_traj_init_min_jerk[:, 2],
+        actual_traj_init_min_snap[:, 0],
+        actual_traj_init_min_snap[:, 1],
+        actual_traj_init_min_snap[:, 2],
         "b",
     )
+    # put legend
+    axes.legend(["ref_traj_init_min_snap", "actual_traj_init_min_snap"])
     axes.set_xlim(-6, 6)
     axes.set_zlim(-6, 6)
     axes.set_ylim(-6, 6)
     axes.set_xlabel("x")
     axes.set_ylabel("y")
     axes.set_zlabel("z")
-    title = "ref=min_jerk"
+    title = "ref=min_snap"
     axes.set_title(title)
     plt.show()
 
-    print("cost_traj's shape", np.array(cost_traj_init_min_jerk).shape)
-    print("init_min_jerk", cost_traj_init_min_jerk)
+    print("cost_traj's shape", np.array(cost_traj_init_min_snap).shape)
+    print("init_min_snap", cost_traj_init_min_snap)
 
     ## compute modified_true cost
     # Load the csv file
@@ -606,6 +507,8 @@ def main():
         actual_traj_modified[:, 2],
         "b",
     )
+    # put legend
+    axes.legend(["ref_traj_modified", "actual_traj_modified"])
     axes.set_xlim(-6, 6)
     axes.set_zlim(-6, 6)
     axes.set_ylim(-6, 6)
@@ -622,8 +525,10 @@ def main():
     # plot the actual yaw angle over time to see if it's actually varying from the network
     fig = plt.figure()
     axes = fig.add_subplot(111)
-    axes.plot(times_init_min_jerk, actual_traj_init_min_jerk[:, 3], "b")
+    axes.plot(times_init_min_snap, actual_traj_init_min_snap[:, 3], "b")
     axes.plot(times_modified, actual_traj_modified[:, 3], "r")
+    # put legend
+    axes.legend(["actual_traj_init_min_snap", "actual_traj_modified"])
     axes.set_xlabel("time")
     axes.set_ylabel("yaw")
     axes.set_title("actual yaw")
@@ -632,356 +537,18 @@ def main():
     # plot the ref yaw angle over time to see if it's actually varying from the network
     fig = plt.figure()
     axes = fig.add_subplot(111)
-    axes.plot(times_init_min_jerk, ref_traj_init_min_jerk[:, 3], "b")
+    axes.plot(times_init_min_snap, ref_traj_init_min_snap[:, 3], "b")
     axes.plot(times_modified, ref_traj_modified[:, 3], "r")
+    # print("ref_traj_init_min_snap", ref_traj_init_min_snap[:, 3])
+    # axis limits to be between 0 and 2pi
+    axes.set_ylim(0, 2 * np.pi)
+    # put legend
+    axes.legend(["ref_traj_init_min_snap", "ref_traj_modified"])
     axes.set_xlabel("time")
     axes.set_ylabel("yaw")
     axes.set_title("ref yaw")
     plt.show()
 
-    """
-    # # # save to csv file and visualization for min_jerk# # #
-    # compute pos, vel, acc, jerk, yaw, yaw_dot from min_jerk_coeffs
-    pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot = compute_pos_vel_acc(
-        502, min_jerk_coeffs, min_jerk_coeffs.shape[1], ts
-    )
-
-    # visualize the trajectory
-    fig = plt.figure()
-    axes = fig.add_subplot(111, projection="3d")
-    axes.plot3D(pos[0], pos[1], pos[2], "r")
-    axes.set_xlim(-6, 6)
-    axes.set_zlim(0, 1)
-    axes.set_ylim(-6, 6)
-    plt.show()
-
-    # save pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot to csv file
-    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_min_jerk.csv"
-    header = [
-        "pos_x",
-        "pos_y",
-        "pos_z",
-        "vel_x",
-        "vel_y",
-        "vel_z",
-        "acc_x",
-        "acc_y",
-        "acc_z",
-        "jerk_x",
-        "jerk_y",
-        "jerk_z",
-        "snap_x",
-        "snap_y",
-        "snap_z",
-        "yaw",
-        "yaw_dot",
-        "yaw_ddot",
-    ]
-    pos = np.array(pos).T
-    vel = np.array(vel).T
-    acc = np.array(acc).T
-    jerk = np.array(jerk).T
-    snap = np.array(snap).T
-    yaw = np.array(yaw).reshape((-1, 1))
-    yaw_dot = np.array(yaw_dot).reshape((-1, 1))
-    yaw_ddot = np.array(yaw_ddot).reshape((-1, 1))
-
-    print("pos's shape", np.array(pos).shape)
-    print("vel's shape", np.array(vel).shape)
-    print("acc's shape", np.array(acc).shape)
-    print("jerk's shape", np.array(jerk).shape)
-    print("snap's shape", np.array(snap).shape)
-    print("yaw's shape", np.array(yaw).shape)
-    print("yaw_dot's shape", np.array(yaw_dot).shape)
-    print("yaw_ddot's shape", np.array(yaw_ddot).shape)
-
-    data = np.hstack((pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot))
-    np.savetxt(path, data, delimiter=",", header=",".join(header))
-
-    # # # save to csv file and visualization for nn# # #
-    # compute pos, vel, acc, jerk, yaw, yaw_dot from nn_coeffs
-    pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot = compute_pos_vel_acc(
-        502, nn_coeffs, nn_coeffs.shape[1], ts
-    )
-
-    # visualize the trajectory
-    fig = plt.figure()
-    axes = fig.add_subplot(111, projection="3d")
-    axes.plot3D(pos[0], pos[1], pos[2], "r")
-    axes.set_xlim(-6, 6)
-    axes.set_zlim(0, 1)
-    axes.set_ylim(-6, 6)
-    plt.show()
-
-    # save pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot to csv file
-    path = "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/pos_from_nn_coeff.csv"
-    header = [
-        "pos_x",
-        "pos_y",
-        "pos_z",
-        "vel_x",
-        "vel_y",
-        "vel_z",
-        "acc_x",
-        "acc_y",
-        "acc_z",
-        "jerk_x",
-        "jerk_y",
-        "jerk_z",
-        "snap_x",
-        "snap_y",
-        "snap_z",
-        "yaw",
-        "yaw_dot",
-        "yaw_ddot",
-    ]
-    pos = np.array(pos).T
-    vel = np.array(vel).T
-    acc = np.array(acc).T
-    jerk = np.array(jerk).T
-    snap = np.array(snap).T
-    yaw = np.array(yaw).reshape((-1, 1))
-    yaw_dot = np.array(yaw_dot).reshape((-1, 1))
-    yaw_ddot = np.array(yaw_ddot).reshape((-1, 1))
-
-    print("pos's shape", np.array(pos).shape)
-    print("vel's shape", np.array(vel).shape)
-    print("acc's shape", np.array(acc).shape)
-    print("jerk's shape", np.array(jerk).shape)
-    print("snap's shape", np.array(snap).shape)
-    print("yaw's shape", np.array(yaw).shape)
-    print("yaw_dot's shape", np.array(yaw_dot).shape)
-    print("yaw_ddot's shape", np.array(yaw_ddot).shape)
-
-    data = np.hstack((pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot))
-    np.savetxt(path, data, delimiter=",", header=",".join(header))
-    """
-
-
-"""
-# for each traj, get min_jerk_coeffs and nn_coeffs
-    # get min_jerk_coeffs for each traj
-    min_jerk_coeffs = []
-    p = 4
-    order = 5
-    duration = 5
-    ts = np.linspace(0, duration, len(waypoints[i]))
-    print("waypoints[i]'s shape", waypoints[i].shape)
-    # print data type of waypoints[i]
-    print("waypoints[i]'s type", type(waypoints[i]))
-    for i in range(num_traj):
-        print(i)
-        _, min_jerk_coeffs = quadratic.generate(
-            waypoints[i].T, ts, order, duration * 100, p, None, 0
-        )
-        min_jerk_coeffs.append(min_jerk_coeffs)
-    print("min_jerk_coeffs's shape", np.array(min_jerk_coeffs).shape)
-
-    # get nn_coeffs for each traj
-    nn_coeffs = []
-    for i in range(num_traj):
-        print(i)
-        nn_coeffs.append(
-            nonlinear.generate(
-                waypoints[i],
-                ts,
-                order,
-                duration * 100,
-                p,
-                rho,
-                vf,
-                min_jerk_coeffs[i],
-                num_iter=100,
-                lr=0.001,
-            )
-        )
-    print("nn_coeffs's shape", np.array(nn_coeffs).shape)
-"""
-
-"""
-    ###########foget about replanning for now
-    # parameters for lissajous trajectory
-
-    np.random.seed(3)
-
-    x_amp = 2
-    y_amp = 2
-    z_amp = 0.8
-    yaw_amp = 0.2
-
-    x_num_periods = 2
-    y_num_periods = 2
-    z_num_periods = 2
-    yaw_num_periods = 2
-
-    # total period for all the trajectories
-    period = 6
-    p = 4
-    order = 5
-    Tref = period * 100
-
-    movig_widow = 4
-    num_waypoints_per_segment = 4
-    duration = 3  # Duration of each replanning iteration
-
-    # Generate the waypoints for the entire trajectory
-    ref = generate_lissajous_traj(
-        np.linspace(0, period, period * 100 + 1),
-        x_num_periods,
-        y_num_periods,
-        z_num_periods,
-        yaw_num_periods,
-        period,
-        x_amp,
-        y_amp,
-        z_amp,
-        yaw_amp,
-    )
-    waypt = np.array(ref)[:, 0::30]
-    # waypt = np.array(ref)[:, 0::50]
-    # Get the number of segments and time samples
-    segments = len(waypt.T) - 1
-    print("Segments:", segments)
-    ts = np.linspace(0, period, segments + 1)
-
-    # we don't need to offset the z axis in sim
-    offset = min(waypt[2, :])
-    print("Negative offset", offset)
-    waypt[2, :] = waypt[2, :] - offset + 0.1
-
-    print(len(waypt.T))
-
-    # Initialize the current waypoint index
-    current_waypoint_index = 0
-    idx = 0
-    while current_waypoint_index < len(waypt.T) - num_waypoints_per_segment + 1:
-        print("current_waypoint_index", current_waypoint_index)
-        # Determine the start and end indices of the next waypoints and trajectory to consider
-        start_idx = current_waypoint_index
-        end_idx = start_idx + num_waypoints_per_segment
-        # print("start_idx", start_idx)
-        # print("end_idx", end_idx)
-
-        # Select the waypoints for replanning
-        selected_waypoints = waypt.T[start_idx:end_idx]
-        print("selected_waypoints's shape", selected_waypoints.shape)
-        mav_obj.publish_waypoints(selected_waypoints.T, 1.0, 0.0, 0.0, 0.9)
-
-        # Replan the trajectory based on previous and next waypoints
-        new_traj_coeffs, min_jerk_coeffs, nn_coeff = simple_replan(
-            selected_waypoints, duration, order, p, vf, rho, idx
-        )
-
-        idx += 1
-
-        Tref = duration * 100
-
-        # Update the current waypoint index
-        current_waypoint_index += movig_widow
-
-        print("current_waypoint_index after update", current_waypoint_index)
-
-        # Compute position, velocity, acceleration, jerk, yaw, and yaw rate from the new trajectory
-        segment_new = len(selected_waypoints.T) - 1
-        ts_new = np.linspace(0, duration, segment_new + 1)
-        # pos, vel, acc, jerk, yaw, yaw_dot = compute_pos_vel_acc(Tref, new_traj_coeffs, segment_new, ts_new)
-        # pos, vel, acc, jerk, yaw, yaw_dot = compute_pos_vel_acc(Tref, min_jerk_coeffs, segment_new, ts_new)
-        pos, vel, acc, jerk, yaw, yaw_dot = compute_pos_vel_acc(
-            Tref, nn_coeff, segment_new, ts_new
-        )
-        # pos[:, -3] = waypt[:3, end_idx]
-        # pos[:, -2] = waypt[:3, end_idx]
-        # pos[:, -1] = waypt[:3, end_idx]
-        # vel[:,-1] = np.zeros(3)
-        # acc[:,-1] = np.zeros(3)
-        jerk[:, -1] = np.zeros(3)
-        # yaw[-1] = 0
-        # yaw_dot[-1] = 0
-
-        # pos_nn, _, _, _, _, _ = compute_pos_vel_acc(Tref, nn_coeff, segment_new, ts_new)
-        pos_mj, _, _, _, _, _ = compute_pos_vel_acc(
-            Tref, min_jerk_coeffs, segment_new, ts_new
-        )
-
-        """
-"""
-        from mpl_toolkits.mplot3d import Axes3D
-        fig = plt.figure()
-        axes = fig.add_subplot(111, projection='3d')
-        # ttraj = actual_traj.copy()
-        # axes = plt.gca(projection='3d')
-        # 0510
-        mav_id = 1
-        axes.plot3D(pos[0, :], pos[1, :], pos[2, :], label='poly')
-        axes.plot3D(pos_nn[0, :], pos_nn[1, :], pos_nn[2, :], label='nn')
-        axes.plot3D(pos_mj[0, :], pos_mj[1, :], pos_mj[2, :], label='mj')
-        axes.set_xlim(-1, 1)
-        axes.set_zlim(0, 4)
-        axes.set_ylim(-1, 1)
-        axes.plot3D(waypt[0, :], waypt[1, :], waypt[2, :], '*')
-        axes.legend()
-
-        fig, ax = plt.subplots(1, 4)
-        ax[0].plot(range(0, Tref), pos[:3, :].T, label=['x', 'y', 'z'])
-        ax[1].plot(range(0, Tref), vel[:3, :].T, label=['vx', 'vy', 'vz'])
-        ax[2].plot(range(0, Tref), acc[:3, :].T, label=['ax', 'ay', 'az'])
-        ax[3].plot(range(0, Tref), jerk[:3, :].T, label=['jx', 'jy', 'jz'])
-        ax[0].legend()
-        ax[1].legend()
-        ax[2].legend()
-        ax[3].legend()
-        # plt.savefig('./layered_ref_control/src/layered_ref_control/plots/traj_infot3'+str(mav_id)+'.png')
-        # plt.savefig('./src/layered_ref_control/plots/traj_infot3'+str(mav_id)+'.png')
-
-        # plt.legend(handles=['position', 'velocity', 'acceleration', 'jerk'])
-        plt.show()
-        # 0510
-        """
-"""
-
-        start = rospy.Time.now()
-        times_nn.append(start)
-        # Pass commands to the controller at a certain frequency
-        for i in range(len(pos.T)):
-            rospy.logwarn("Publishing pos: %s", pos[:, i])
-            mav_obj.publish_pos_cmd(
-                pos[0, i],
-                pos[1, i],
-                pos[2, i],
-                vel[0, i],
-                vel[1, i],
-                vel[2, i],
-                acc[0, i],
-                acc[1, i],
-                acc[2, i],
-                jerk[0, i],
-                jerk[1, i],
-                jerk[2, i],
-                yaw[i],
-                yaw_dot[i],
-            )
-            rate.sleep()
-
-        end = rospy.Time.now()
-        times_nn.append(end)
-
-        rospy.logwarn("Reached initial waypoints")
-
-    mav_obj.send_wp_block(
-        pos[0, -1], pos[1, -1], pos[2, -1], 0.0, 0, 0, False
-    )  # x, y, z, yaw, vel, acc, relative
-
-    # save_object(duration, '/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/net_duration.pkl')
-    save_object(
-        times_nn,
-        "/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/times_nn"
-        + str(rho)
-        + ".pkl",
-    )
-    # save_object(times_mj, '/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/times_mj.pkl')
-    # save_object(times_poly,
-    #            '/home/anusha/Research/ws_kr/src/layered_ref_control/src/layered_ref_control/data/times_poly.pkl')
-"""
 
 if __name__ == "__main__":
     # try:

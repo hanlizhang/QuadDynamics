@@ -388,6 +388,59 @@ class MinSnap(object):
                     ]
                 )
 
+            # call modify_reference directly after computing the min snap coeffs and use the returned coeffs in the rest of the class
+            if use_neural_network:
+                # Get the coefficients from the neural network
+                # from x_poly(segment, axis, coeff) and yaw_poly(segment, 1, coeff) to min_snap_coeffs(4, segment, coeff)
+                min_snap_coeffs = np.zeros((4, m, poly_degree + 1))
+                for i in range(m):
+                    for j in range(3):
+                        min_snap_coeffs[j, i, :] = self.x_poly[i, j, :]
+                    min_snap_coeffs[3, i, :] = self.yaw_poly[i, 0, :]
+
+                # waypoints: points and yaw_angles
+                waypoints = np.zeros((m + 1, 4))
+                waypoints[:, 0:3] = self.points
+                waypoints[:, 3] = self.yaw
+
+                # get H by concatenating H_pos and H_yaw
+                H = block_diag(
+                    *[P_pos, P_pos, P_pos, P_yaw]
+                )  # cost fuction is the same for x, y, z
+
+                # print("H_pos.shape: ", np.array(P_pos).shape)
+                # print("H_yaw.shape: ", np.array(P_yaw).shape)
+                # print("H.shape: ", np.array(H).shape)
+
+                # get A by concatenating Ax, Ay, Az, Ayaw
+                A = block_diag(*[Ax, Ay, Az, Ayaw])
+                # print("Ax.shape: ", Ax.shape)
+                # print("Ayaw.shape: ", Ayaw.shape)
+                # print("A.shape: ", np.array(A).shape)
+
+                # get b by concatenating bx, by, bz, byaw
+                b = np.concatenate((bx, by, bz, byaw))
+                # print("bx.shape: ", bx.shape)
+                # print("byaw.shape: ", byaw.shape)
+                # print("b.shape: ", np.array(b).shape)
+
+                nn_coeff, pred = nonlinear_jax.modify_reference(
+                    waypoints,
+                    self.t_keyframes,
+                    502,
+                    poly_degree,
+                    4,
+                    regularizer,
+                    H,
+                    A,
+                    b,
+                    min_snap_coeffs,
+                )
+                for i in range(m):
+                    for j in range(3):
+                        self.x_poly[i, j, :] = nn_coeff[j, i, :]
+                    self.yaw_poly[i, 0, :] = nn_coeff[3, i, :]
+
             for i in range(m):
                 for j in range(3):
                     self.x_dot_poly[i, j, :] = np.polyder(self.x_poly[i, j, :], m=1)
@@ -404,35 +457,6 @@ class MinSnap(object):
             self.T = np.zeros((m,))
             self.x_poly = np.zeros((m, 3, 6))
             self.x_poly[0, :, -1] = points[0, :]
-
-        # call modify_reference directly after computing the min snap coeffs and use the returned coeffs in the rest of the class
-        if use_neural_network:
-            # Get the coefficients from the neural network
-            # from x_poly(segment, axis, coeff) and yaw_poly(segment, 1, coeff) to min_snap_coeffs(4, segment, coeff)
-            min_snap_coeffs = np.zeros((4, m, poly_degree + 1))
-            for i in range(m):
-                for j in range(3):
-                    min_snap_coeffs[j, i, :] = self.x_poly[i, j, :]
-                min_snap_coeffs[3, i, :] = self.yaw_poly[i, 0, :]
-
-            # waypoints: points and yaw_angles
-            waypoints = np.zeros((m + 1, 4))
-            waypoints[:, 0:3] = self.points
-            waypoints[:, 3] = self.yaw
-
-            nn_coeff, pred = nonlinear_jax.modify_reference(
-                waypoints,
-                self.t_keyframes,
-                502,
-                poly_degree,
-                4,
-                regularizer,
-                min_snap_coeffs,
-            )
-            for i in range(m):
-                for j in range(3):
-                    self.x_poly[i, j, :] = nn_coeff[j, i, :]
-                self.yaw_poly[i, 0, :] = nn_coeff[3, i, :]
 
     def update(self, t):
         """

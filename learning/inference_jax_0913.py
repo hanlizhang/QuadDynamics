@@ -13,8 +13,7 @@ import numpy as np
 import random
 
 from learning.trajgen import quadratic, nonlinear_jax, nonlinear, valuefunc
-from examples.verify_inference_0909 import VerifyInference
-
+from examples.verify_inference_0913 import VerifyInference
 
 import torch
 import pickle
@@ -454,7 +453,7 @@ def main():
 
     # vf = model.bind(trained_model_state.params)
 
-    desired_radius = 3.8
+    desired_radius = 4
     num_waypoints = 10
     desired_freq = 0.2
     v_avg = desired_radius * (desired_freq * 2 * np.pi)
@@ -466,7 +465,9 @@ def main():
         ]
     )
 
-    yaw_angles = np.ones(num_waypoints)
+    yaw_angles = np.zeros(num_waypoints)
+
+    # yaw_angles = np.array([alpha for alpha in np.linspace(0, 2 * np.pi, num_waypoints)])
 
     # visualize the waypoints
     fig = plt.figure()
@@ -497,6 +498,8 @@ def main():
         use_neural_network=False,
         regularizer=None,
         fname=fname_minsnap,
+        verify_by_pos=False,
+        trained_model_state=None,
     )
 
     init_inference_results.run_simulation()
@@ -513,11 +516,11 @@ def main():
         v_avg=v_avg,
         v_start=[0, v_avg, 0],
         v_end=[0, v_avg, 0],
-        use_neural_network=True,
-        regularizer=vf,
-        # use_neural_network=False,
-        # regularizer=None,
+        use_neural_network=False,
+        regularizer=None,
         fname=fname_nn,
+        verify_by_pos=True,
+        trained_model_state=trained_model_state,
     )
 
     modified_inference_results.run_simulation()
@@ -634,7 +637,7 @@ def main():
     axes.plot(times_modified, ref_traj_modified[:, 3], "r")
     # print("ref_traj_init_min_snap", ref_traj_init_min_snap[:, 3])
     # axis limits to be between 0 and 2pi
-    axes.set_ylim(0, 2 * np.pi)
+    # axes.set_ylim(0, 2 * np.pi)
     # put legend
     axes.legend(["ref_traj_init_min_snap", "ref_traj_modified"])
     axes.set_xlabel("time")
@@ -649,7 +652,7 @@ def main():
     axes.plot(times_modified, yaw_ref_modified, "r")
     # print("yaw_ref_init_min_snap", yaw_ref_init_min_snap)
     # axis limits to be between 0 and 2pi
-    axes.set_ylim(0, 2 * np.pi)
+    # axes.set_ylim(0, 2 * np.pi)
     # put legend
     axes.legend(["yaw_ref_init_min_snap", "yaw_ref_modified"])
     axes.set_xlabel("time")

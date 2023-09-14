@@ -15,7 +15,8 @@ class MinJerkReg(nn.Module):
         # Compute cost matrices (note its shared across dimensions)
         num_seg = len(ts - 1)
         durations = ts[1:] - ts[:-1]
-        cost_mat = spl.block_diag(*[_cost_matrix(order, 3, d) for d in durations])
+        cost_mat = spl.block_diag(*[_cost_matrix(order, 4, d) for d in durations])
+        print("cost_mat's shape", cost_mat)
         self.ts = ts
         self.cost_mat = torch.tensor(cost_mat)
         self.regularizer = regularizer
@@ -28,29 +29,34 @@ class MinJerkReg(nn.Module):
             cost += torch.dot(
                 self.coeff[pp].reshape(-1), self.cost_mat @ self.coeff[pp].reshape(-1)
             )
+        print("Cost min snap", cost)
         # Compute regularizer
         if self.regularizer is not None:
             ref = coeff2traj(self.coeff, self.ts, num_steps)[1].T.flatten()
-            cost += rho * self.regularizer.pred(x0, ref)[0]
-            cost += rho * self.regularizer.pred(x0, ref)[0]
+            # cost += self.regularizer.pred(x0, ref)[0]
+
+        print("Cost total", cost)
+        cost += torch.exp(self.regularizer.pred(x0, ref)[0])
         return cost
 
 
-# def _coeff_constr_A(ts, coeffs):
-def _coeff_constr_A(ts, n, num_coeffs):
+def _coeff_constr_A(ts, coeffs):
+    # def _coeff_constr_A(ts, n, num_coeffs):
     """Construct the matrix for the linear constraints on the coeffs.
     Assumes the coeffs are stacked as [c1, c2, ..., c_{#seg}].T
     Note: This is now applicable to min jerk only.
     """
-    # n = coeffs.shape[2]  # n := order of polynomial + 1
+    n = coeffs.shape[2]  # n := order of polynomial + 1
     num_seg = len(ts) - 1
+    # num_constraints = num_seg * 5 + 3
     num_constraints = num_seg * 4 + 2
-    # num_coeffs = np.prod(coeffs.shape[1:])
+    num_coeffs = np.prod(coeffs.shape[1:])
     # num_coeffs = coeffs.shape[1]
     A = np.zeros((num_constraints, num_coeffs))
     # Continuity constraints
     for i in range(num_seg):
         A[i * 4, i * n : (i + 1) * n] = _diff_coeff(n - 1, 0, 0)
+
         A[i * 4 + 1, i * n : (i + 1) * n] = _diff_coeff(n - 1, ts[i + 1] - ts[i], 0)
         if i < num_seg - 1:
             A[i * 4 + 2, i * n : (i + 2) * n] = np.concatenate(
@@ -59,22 +65,28 @@ def _coeff_constr_A(ts, n, num_coeffs):
             A[i * 4 + 3, i * n : (i + 2) * n] = np.concatenate(
                 [_diff_coeff(n - 1, ts[i + 1] - ts[i], 2), -_diff_coeff(n - 1, 0, 2)]
             )
+            # A[i * 5 + 4, i * n : (i + 2) * n] = np.concatenate(
+            #     [_diff_coeff(n - 1, ts[i + 1] - ts[i], 3), -_diff_coeff(n - 1, 0, 3)]
+            # )
     # Boundary constraints
+    # A[-6, :n] = _diff_coeff(n - 1, 0, 1)
+    # A[-5, :n] = _diff_coeff(n - 1, 0, 2)
     A[-4, :n] = _diff_coeff(n - 1, 0, 1)
     A[-3, :n] = _diff_coeff(n - 1, 0, 2)
     A[-2, -n:] = _diff_coeff(n - 1, ts[-1] - ts[-2], 1)
     A[-1, -n:] = _diff_coeff(n - 1, ts[-1] - ts[-2], 2)
+    # A[-1, -n:] = _diff_coeff(n - 1, ts[-1] - ts[-2], 3)"""
     return A
 
 
-# def _coeff_constr_b(wps, ts, coeffs):
-def _coeff_constr_b(wps, ts, n):
+def _coeff_constr_b(wps, ts, coeffs):
+    # def _coeff_constr_b(wps, ts, n):
     """b of the linear constraints
     Input:
         - wps:      np.array(p, #segments+1)
         - coeffs:   np.array(p, #segments, order of polynomial)
     """
-    # n = coeffs.shape[2]  # n := order of polynomial + 1
+    n = coeffs.shape[2]  # n := order of polynomial + 1
     num_seg = len(ts) - 1
     num_constraints = num_seg * 4 + 2
     b = np.zeros((wps.shape[0], num_constraints))
@@ -120,7 +132,7 @@ def coeff2traj(coeffs, ts, numsteps):
 
 
 def generate(
-    waypoints, ts, order, num_steps, p, rho, value_func, coeff0, num_iter=30, lr=1e-3
+    waypoints, ts, order, num_steps, p, rho, value_func, coeff0, num_iter=50, lr=1e-5
 ):
     """Generate trajectory that minimizes the jerk with the dynamic
         regularizer using projected gradient descent.

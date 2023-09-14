@@ -5,7 +5,8 @@ import numpy as np
 import cvxopt
 from scipy.linalg import block_diag
 import itertools
-from learning.trajgen import nonlinear_jax
+from learning.trajgen import nonlinear_jax, nonlinear
+import torch
 
 
 def cvxopt_solve_qp(P, q, G=None, h=None, A=None, b=None):
@@ -358,6 +359,7 @@ class MinSnap(object):
             c_opt_y = cvxopt_solve_qp(P_pos, q=q_pos, G=Gy, h=hy, A=Ay, b=by)
             c_opt_z = cvxopt_solve_qp(P_pos, q=q_pos, G=Gz, h=hz, A=Az, b=bz)
             c_opt_yaw = cvxopt_solve_qp(P_yaw, q=q_yaw, G=Gyaw, h=hyaw, A=Ayaw, b=byaw)
+            # c_opt_yaw = np.zeros((yaw_poly_degree + 1) * m)
 
             ################## Construct polynomials from c_opt
             self.x_poly = np.zeros((m, 3, (poly_degree + 1)))
@@ -390,13 +392,20 @@ class MinSnap(object):
 
             # call modify_reference directly after computing the min snap coeffs and use the returned coeffs in the rest of the class
             if use_neural_network:
-                # Get the coefficients from the neural network
-                # from x_poly(segment, axis, coeff) and yaw_poly(segment, 1, coeff) to min_snap_coeffs(4, segment, coeff)
                 min_snap_coeffs = np.zeros((4, m, poly_degree + 1))
                 for i in range(m):
                     for j in range(3):
                         min_snap_coeffs[j, i, :] = self.x_poly[i, j, :]
                     min_snap_coeffs[3, i, :] = self.yaw_poly[i, 0, :]
+                # coeffs = np.concatenate([c_opt_x, c_opt_y, c_opt_z, c_opt_yaw])
+                # coeffs = np.zeros([4 * (poly_degree + 1) * m])
+                # Get the coefficients from the neural network
+                # from x_poly(segment, axis, coeff) and yaw_poly(segment, 1, coeff) to min_snap_coeffs(4, segment, coeff)
+                # min_snap_coeffs = np.zeros((4, m, poly_degree + 1))
+                # for i in range(m):
+                #     for j in range(3):
+                #         min_snap_coeffs[j, i, :] = self.x_poly[i, j, :]
+                #     min_snap_coeffs[3, i, :] = self.yaw_poly[i, 0, :]
 
                 # waypoints: points and yaw_angles
                 waypoints = np.zeros((m + 1, 4))
@@ -405,7 +414,12 @@ class MinSnap(object):
 
                 # get H by concatenating H_pos and H_yaw
                 H = block_diag(
-                    *[P_pos, P_pos, P_pos, P_yaw]
+                    *[
+                        0.5 * (P_pos.T + P_pos),
+                        0.5 * (P_pos.T + P_pos),
+                        0.5 * (P_pos.T + P_pos),
+                        0.5 * (P_yaw.T + P_yaw),
+                    ]
                 )  # cost fuction is the same for x, y, z
 
                 # print("H_pos.shape: ", np.array(P_pos).shape)
@@ -424,7 +438,18 @@ class MinSnap(object):
                 # print("byaw.shape: ", byaw.shape)
                 # print("b.shape: ", np.array(b).shape)
 
-                nn_coeff, pred = nonlinear_jax.modify_reference(
+                nn_coeff = nonlinear.generate(
+                    torch.tensor(waypoints),
+                    self.t_keyframes,
+                    poly_degree,
+                    502,
+                    4,
+                    1,
+                    regularizer,
+                    torch.tensor(min_snap_coeffs),
+                )
+
+                """nn_coeff, pred = nonlinear_jax.modify_reference(
                     waypoints,
                     self.t_keyframes,
                     502,
@@ -434,8 +459,16 @@ class MinSnap(object):
                     H,
                     A,
                     b,
-                    min_snap_coeffs,
+                    coeffs,
                 )
+                c_opt_x = nn_coeff[0 : ((poly_degree + 1) * m)]
+                c_opt_y = nn_coeff[
+                    ((poly_degree + 1) * m) : (2 * (poly_degree + 1) * m)
+                ]
+                c_opt_z = nn_coeff[
+                    (2 * (poly_degree + 1) * m) : (3 * (poly_degree + 1) * m)
+                ]
+                c_opt_yaw = nn_coeff[(3 * (poly_degree + 1) * m) :]"""
                 for i in range(m):
                     for j in range(3):
                         self.x_poly[i, j, :] = nn_coeff[j, i, :]
@@ -518,6 +551,49 @@ class MinSnap(object):
             "yaw_ddot": yaw_ddot,
         }
         return flat_output
+
+    def evaluate_trajectory(self, times):
+        """
+        Evaluates the minsnap trajectory throughout a time interval given by times.
+        Input:
+            times, an array (N,) of N time points. We assume that times is in ascending order.
+        Output:
+            flat_outputs: the outputs of the trajectory in the order (pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot)
+        """
+
+        N = times.shape[0]  # The number of timesteps.
+
+        flat_outputs = []
+
+        for t in times:  # for each time in timesteps
+            # Compute the flat outputs using min snap.
+            flat = self.update(t)
+
+            # Unpack
+            x = flat["x"]
+            x_dot = flat["x_dot"]
+            x_ddot = flat["x_ddot"]
+            x_dddot = flat["x_dddot"]
+            x_ddddot = flat["x_ddddot"]
+            yaw = np.array(flat["yaw"])
+            yaw_dot = np.array(flat["yaw_dot"])
+            yaw_ddot = np.array(flat["yaw_ddot"])
+
+            # Assign to output
+            flat_outputs.append(
+                np.concatenate(
+                    (
+                        x,
+                        x_dot,
+                        x_ddot,
+                        x_dddot,
+                        x_ddddot,
+                        np.array([yaw, yaw_dot, yaw_ddot]),
+                    )
+                )
+            )
+
+        return np.array(flat_outputs)
 
 
 if __name__ == "__main__":

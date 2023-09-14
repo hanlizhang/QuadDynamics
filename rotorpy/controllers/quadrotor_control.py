@@ -227,12 +227,18 @@ class SE3Control(object):
         if not self.drag_compensation:
             b3_des = normalize(F_des)
         else:
-            b3_des = normalize(self.k_d*np.sum(state['rotor_speeds'])*state['v'] + F_des)
+            b3_des = normalize(self.k_d*np.sum(state['rotor_speeds'])*state['v'] + F_des + np.linalg.norm(state['v'])*np.array([[self.c_Dx, 0, 0], [0, self.c_Dy, 0], [0, 0, self.c_Dz]])@state['v'])
         yaw_des = flat_output['yaw']
-        c1_des = np.array([np.cos(yaw_des), np.sin(yaw_des), 0])
-        b2_des = normalize(np.cross(b3_des, c1_des))
-        b1_des = np.cross(b2_des, b3_des)
-        R_des = np.stack([b1_des, b2_des, b3_des]).T
+        # c1_des = np.array([np.cos(yaw_des), np.sin(yaw_des), 0])
+        # b2_des = normalize(np.cross(b3_des, c1_des))
+        # b1_des = np.cross(b2_des, b3_des)
+        # R_des = np.stack([b1_des, b2_des, b3_des]).T
+
+        H = np.array([[1 - (b3_des[0]**2)/(1 + b3_des[2]), -(b3_des[0]*b3_des[1])/(1 + b3_des[2]), b3_des[0]], [-(b3_des[0]*b3_des[1])/(1 + b3_des[2]), 1 - (b3_des[1]**2)/(1 + b3_des[2]), b3_des[1]], [-b3_des[0], -b3_des[1], b3_des[2]]])
+
+        Hyaw = np.array([[np.cos(yaw_des), -np.sin(yaw_des), 0], [np.sin(yaw_des), np.cos(yaw_des), 0], [0, 0, 1]])
+
+        R_des = H@Hyaw
 
         # Orientation error.
         S_err = 0.5 * (R_des.T @ R - R.T @ R_des)

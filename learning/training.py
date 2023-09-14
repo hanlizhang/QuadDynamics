@@ -142,19 +142,34 @@ def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho
         r0 = ref_traj[i * horizon : (i + 1) * horizon, :]
         r0 = np.append(r0, r0[-1, :] * np.ones((N - 1, n)))
         r0 = np.reshape(r0, (horizon + N - 1, n))
+        distances = np.linalg.norm(np.diff(r0[:horizon, :3], axis=0), axis=1)
+        unit_vec = np.zeros((horizon - 1, 3))
 
+        for j in range(distances.shape[0]):
+            if distances[j] > 0:
+                unit_vec[j, :] = np.diff(r0[j : j + 2, :3], axis=0) / distances[j]
+            else:
+                unit_vec[j, :] = unit_vec[j - 1, :]
+        # unit_vec = np.diff(r0[:horizon, :3], axis=0) / np.linalg.norm(
+        #     np.diff(r0[:horizon, :3], axis=0), axis=1
+        # ).reshape(-1, 1)
+        print("unit_vec: ", unit_vec)
+        des_yaw = angle_wrap(np.arctan2(unit_vec[:, 1], unit_vec[:, 0]))
+        des_yaw = np.append(des_yaw, des_yaw[-1])
+        print("des_yaw: ", des_yaw)
         # print("delta yaw: ", act[:, 3] - r0[:, 3])
         # print("angle_wrap: ", angle_wrap(act[:, 3] - r0[:, 3]))
         # print("yaw cost: ", angle_wrap(act[:, 3] - r0[:, 3]))
         xcost.append(
             rho
             * (
-                np.linalg.norm(act[:, :3] - r0[:, :3], axis=1) ** 2
-                + angle_wrap(act[:, 3] - r0[:, 3]) ** 2
+                np.linalg.norm(act[:, :3] - r0[:, :3], axis=1)
+                ** 2
+                # + angle_wrap(act[:, 3] - r0[:, 3]) ** 2
                 # ignore the yaw error
             )
             # input_traj cost is sum of squares of motor speeds for 4 individual motors
-            + np.linalg.norm(input_traj[i]) * (1 / horizon)
+            # + 0.001 * (1 / horizon) * np.linalg.norm(input_traj[i]) ** 2
             # + np.linalg.norm(input_traj[i]) ** 2  # Removed 0.1 multiplier
         )
         # print("cost for the input_traj: ", np.linalg.norm(input_traj[i]))
@@ -169,6 +184,7 @@ def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho
     cost = []
     for i in range(num_traj):
         tot = list(accumulate(xcost[i], lambda x, y: x * gamma + y))
+        # tot[-1] += 100 * np.linalg.norm(des_yaw - act[:horizon, 3]) ** 2
         cost.append(np.log(tot[-1]))
         # cost.append(tot[-1])
     cost.reverse()
@@ -181,7 +197,7 @@ def angle_wrap(theta):
 
 def main():
     horizon = 502
-    rho = 0.01
+    rho = 15
 
     rhos = [0, 1, 5, 10, 20, 50, 100]
     gamma = 1
@@ -191,7 +207,7 @@ def main():
     # sim_data = load_bag("/home/anusha/dragonfly1-2023-04-12-12-18-27.bag")
     ### Load the csv file here with header
     sim_data = np.loadtxt(
-        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/sim_airdrag_yawmixed_1500.csv",
+        "/home/mrsl_guest/rotorpy/rotorpy/rotorpy/data_out/sim_airdrag_yawmixed_4000_20230913_203728.csv",
         delimiter=",",
         skiprows=1,
     )
@@ -264,18 +280,21 @@ def main():
         # r0 is the reference trajectory, dimension is 502*4
 
     aug_state = np.array(aug_state)
-    print(aug_state.shape)
+    print("aug_state.shape: ", aug_state.shape)  # (2, 2012)
 
     Tstart = 0
     Tend = aug_state.shape[0]
 
     train_dataset = TrajDataset(
-        aug_state[Tstart : Tend - 1, :].astype("float64"),
-        input_traj[Tstart : Tend - 1, :].astype("float64"),
-        cost_traj[Tstart : Tend - 1, None].astype("float64"),
-        aug_state[Tstart + 1 : Tend, :].astype("float64"),
+        aug_state[Tstart:Tend, :].astype("float64"),
+        input_traj[Tstart:Tend, :].astype("float64"),
+        cost_traj[Tstart:Tend, None].astype("float64"),
+        aug_state[Tstart:Tend, :].astype("float64"),
     )
 
+    train_data = train_dataset
+    print("Training data length: ", len(train_data))
+    """
     # Split the dataset into training and testing subsets
     train_data, test_data = train_test_split(
         train_dataset,
@@ -285,6 +304,7 @@ def main():
 
     print("Training data length: ", len(train_data))
     print("Testing data length: ", len(test_data))
+    """
 
     p = aug_state.shape[1]
     q = 4
@@ -314,56 +334,6 @@ def main():
     trained_model_state = train_model(
         model_state, train_data_loader, num_epochs=num_epochs
     )
-    """
-    # Train on 2nd dataset
-    sim_data = load_bag("/home/anusha/dragonfly2-2023-04-12-12-18-27.bag")
-
-    ref_traj, actual_traj, input_traj, cost_traj, times = compute_traj(
-        sim_data, "dragonfly2", "/home/anusha/min_jerk_times.pkl", rho
-    )
-    sim_data.close()
-
-    # Construct augmented states
-
-    cost_traj = cost_traj.ravel()
-
-    print("Costs", cost_traj)
-
-    num_traj = int(len(ref_traj) / horizon)
-
-    # Create augmented state
-
-    aug_state = []
-    for i in range(num_traj):
-        r0 = ref_traj[i * horizon : (i + 1) * horizon, :]
-        act = actual_traj[i * horizon : (i + 1) * horizon, :]
-        aug_state.append(np.append(act[0, :], r0))
-
-    aug_state = np.array(aug_state)
-    print(aug_state.shape)
-
-    Tstart = 0
-    Tend = aug_state.shape[0]
-
-    train_dataset = TrajDataset(
-        aug_state[Tstart : Tend - 1, :].astype("float64"),
-        input_traj[Tstart : Tend - 1, :].astype("float64"),
-        cost_traj[Tstart : Tend - 1, None].astype("float64"),
-        aug_state[Tstart + 1 : Tend, :].astype("float64"),
-    )
-
-    p = aug_state.shape[1]
-    q = 4
-
-    print(aug_state.shape)
-
-    train_data_loader = data.DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, collate_fn=numpy_collate
-    )
-    trained_model_state = train_model(
-        trained_model_state, train_data_loader, num_epochs=num_epochs
-    )
-    """
 
     # Evaluation of trained network
 
@@ -377,14 +347,16 @@ def main():
     out = []
     true = []
     for batch in train_data_loader:
+        print("batch", batch)
         data_input, _, cost, _ = batch
         out.append(trained_model(data_input))
         true.append(cost)
         # print("Cost", cost)
         # print("Predicted", trained_model(data_input))
 
-    print("out's shape", out[0].shape)
+    print("out's shape", len(out))
     out = np.vstack(out)
+    print("out's shape", out.shape)
     true = np.vstack(true)
 
     # scatter plot
@@ -425,17 +397,6 @@ def main():
     plt.legend()
     plt.title("Actual - Training Dataset")
     # Set the y-axis range from 0 to 500
-    plt.ylim(0, 800)
-    plt.show()
-
-    # line plot
-    plt.figure()
-    plt.xlabel("Trajectory Index")
-    plt.ylabel("Cost")
-    plt.plot(out.ravel(), "b-", label="Predictions")
-    plt.plot(true.ravel(), "r--", label="Actual")
-    plt.legend()
-    plt.title("Predicted vs Actual - Training Dataset")
     plt.show()
 
     # Two boxplots
@@ -498,7 +459,7 @@ def main():
     )
     """
     # Evaluation of test and train dataset
-
+    """
     test_data_loader = data.DataLoader(
         test_data, batch_size=batch_size, shuffle=False, collate_fn=numpy_collate
     )
@@ -552,6 +513,7 @@ def main():
     plt.show()
 
     # eval_model(trained_model_state, test_data_loader, batch_size)
+    """
 
 
 if __name__ == "__main__":

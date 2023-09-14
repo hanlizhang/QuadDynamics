@@ -238,116 +238,120 @@ def main():
     # Set up the circular trajectory waypoints.
     desired_freq = 0.2  # In Hz (1/s). To convert to rad/s, we multiply by 2*pi
 
-    num_waypoints = 40
+    # desired_radius = 4  # In meters
+    radii_list = np.linspace(3, 4.5, 300)
 
-    yaw_travel_angles = np.array(
-        [alpha for alpha in np.linspace(0, 2 * np.pi, num_waypoints)]
-    )  # This is how you would make sure the quad is always facing towards the direction of travel.
+    yaw_list = np.linspace(0, 2 * np.pi, 10)
 
-    # Create a list of radii ranging from 1 to 8 meters
-    desired_radius = np.linspace(3, 4.5, 50)
+    # Create a list of number of waypoints to use for each trajectory, from 5 to 150, in increments of 1, integer values only
+    num_waypoints_list = np.arange(5, 75, 1, dtype=int)
 
-    yaw_values = np.linspace(0, np.pi, 100)
+    num_waypoints_fixed = 10
 
-    # Loop through each radius and generate the circular trajectory simulation
     idx = 0
-    for radius in np.linspace(3, 4.5, 2000):
-        idx = idx + 1
-        print(f"Running simulation for circular trajectory {idx} with radius {radius}")
-
-        # Instantiate the circular trajectory with the current radius
-        v_avg = radius * (
+    for desired_radius in radii_list:
+        v_avg = desired_radius * (
             desired_freq * 2 * np.pi
         )  # Get the average speed by multiplying radius by frequency (units should be m/s)
-        waypoints = np.array(
-            [
-                [radius * np.cos(alpha), radius * np.sin(alpha), 0]
-                for alpha in np.linspace(0, 2 * np.pi, num_waypoints)
-            ]
-        )  # Equally spaced waypoints.
-        # Set up trajectory.
-        traj = MinSnap(
-            points=waypoints,
-            yaw_angles=yaw_travel_angles,
-            v_max=15,
-            v_avg=v_avg,
-            v_start=[0, v_avg, 0],
-            v_end=[0, v_avg, 0],
-        )
-
-        # Instantiate the simulator environment
-        sim_instance = Environment(
-            vehicle=quad,  # vehicle object, must be specified.
-            controller=SE3Control(quad_params),  # controller object, must be specified.
-            trajectory=traj,
-            wind_profile=NoWind(),
-            sim_rate=100,  # OPTIONAL: The update frequency of the simulator in Hz. Default is 100 Hz.
-            imu=None,  # OPTIONAL: imu sensor object, if none is supplied it will choose a default IMU sensor.
-            mocap=None,  # OPTIONAL: mocap sensor object, if none is supplied it will choose a default mocap.
-            estimator=None,  # OPTIONAL: estimator object
-            world=None,
-            # world=world,  # OPTIONAL: the world, same name as the file in rotorpy/worlds/, default (None) is empty world
-            safety_margin=0.25,  # OPTIONAL: defines the radius (in meters) of the sphere used for collision checking
-        )
-
-        cmd_hover_speeds = np.sqrt(quad.mass * quad.g / (quad.num_rotors * quad.k_eta))
-        flat_init = traj.update(0)
-        x0 = {
-            "x": flat_init["x"],
-            "v": flat_init["x_dot"],
-            "q": np.array([0, 0, 0, 1]),  # [i,j,k,w]
-            "w": np.zeros(
-                3,
-            ),
-            "wind": np.array(
-                [0, 0, 0]
-            ),  # Since wind is handled elsewhere, this value is overwritten
-            "rotor_speeds": np.ones(quad.num_rotors) * cmd_hover_speeds,
-        }
-        sim_instance.vehicle.initial_state = x0
-
-        # Execute the simulator for the specified duration
-        results = sim_instance.run(
-            t_final=5,
-            use_mocap=False,
-            terminate=False,
-            plot=False,
-            plot_mocap=False,
-            plot_estimator=False,
-            plot_imu=False,
-            animate_bool=False,
-            animate_wind=False,
-            verbose=True,
-            fname=None,
-        )
-
-        # Convert simulation results to a DataFrame
-        simulation_data = unpack_sim_data(results)
-
-        # Append simulation data to the all_simulation_data list
-        all_simulation_data.append(simulation_data)
-    for radius in desired_radius:
-        for yaw in yaw_values:
+        for num_waypt in num_waypoints_list:
             idx = idx + 1
-            yaw_angles = np.ones(num_waypoints) * yaw
             print(
-                f"Running simulation for circular trajectory {idx} with radius {radius} and yaw {yaw}"
+                f"Running simulation for circular trajectory {idx} with num_waypt {num_waypt}"
             )
 
-            # Instantiate the circular trajectory with the current radius
-            v_avg = radius * (
-                desired_freq * 2 * np.pi
-            )  # Get the average speed by multiplying radius by frequency (units should be m/s)
             waypoints = np.array(
                 [
-                    [radius * np.cos(alpha), radius * np.sin(alpha), 0]
-                    for alpha in np.linspace(0, 2 * np.pi, num_waypoints)
+                    [desired_radius * np.cos(alpha), desired_radius * np.sin(alpha), 0]
+                    for alpha in np.linspace(0, 2 * np.pi, num_waypt)
                 ]
             )  # Equally spaced waypoints.
+
+            yaw_travel_angles = np.array(
+                [alpha for alpha in np.linspace(0, 2 * np.pi, num_waypt)]
+            )  # This is how you would make sure the quad is always facing towards the direction of travel.
+
             # Set up trajectory.
             traj = MinSnap(
                 points=waypoints,
-                yaw_angles=yaw_angles,
+                yaw_angles=yaw_travel_angles,
+                v_max=15,
+                v_avg=v_avg,
+                v_start=[0, v_avg, 0],
+                v_end=[0, v_avg, 0],
+            )
+
+            # Instantiate the simulator environment
+            sim_instance = Environment(
+                vehicle=quad,  # vehicle object, must be specified.
+                controller=SE3Control(
+                    quad_params
+                ),  # controller object, must be specified.
+                trajectory=traj,
+                wind_profile=NoWind(),
+                sim_rate=100,  # OPTIONAL: The update frequency of the simulator in Hz. Default is 100 Hz.
+                imu=None,  # OPTIONAL: imu sensor object, if none is supplied it will choose a default IMU sensor.
+                mocap=None,  # OPTIONAL: mocap sensor object, if none is supplied it will choose a default mocap.
+                estimator=None,  # OPTIONAL: estimator object
+                world=None,
+                # world=world,  # OPTIONAL: the world, same name as the file in rotorpy/worlds/, default (None) is empty world
+                safety_margin=0.25,  # OPTIONAL: defines the radius (in meters) of the sphere used for collision checking
+            )
+
+            cmd_hover_speeds = np.sqrt(
+                quad.mass * quad.g / (quad.num_rotors * quad.k_eta)
+            )
+            flat_init = traj.update(0)
+            x0 = {
+                "x": flat_init["x"],
+                "v": flat_init["x_dot"],
+                "q": np.array([0, 0, 0, 1]),  # [i,j,k,w]
+                "w": np.zeros(
+                    3,
+                ),
+                "wind": np.array(
+                    [0, 0, 0]
+                ),  # Since wind is handled elsewhere, this value is overwritten
+                "rotor_speeds": np.ones(quad.num_rotors) * cmd_hover_speeds,
+            }
+            sim_instance.vehicle.initial_state = x0
+
+            # Execute the simulator for the specified duration
+            results = sim_instance.run(
+                t_final=5,
+                use_mocap=False,
+                terminate=False,
+                plot=False,
+                plot_mocap=False,
+                plot_estimator=False,
+                plot_imu=False,
+                animate_bool=False,
+                animate_wind=False,
+                verbose=True,
+                fname=None,
+            )
+
+            # Convert simulation results to a DataFrame
+            simulation_data = unpack_sim_data(results)
+
+            # Append simulation data to the all_simulation_data list
+            all_simulation_data.append(simulation_data)
+        for yaw in yaw_list:
+            idx = idx + 1
+            print(f"Running simulation for circular trajectory {idx} with yaw {yaw}")
+
+            waypoints = np.array(
+                [
+                    [desired_radius * np.cos(alpha), desired_radius * np.sin(alpha), 0]
+                    for alpha in np.linspace(0, 2 * np.pi, num_waypoints_fixed)
+                ]
+            )
+
+            yaw_angle = np.ones(num_waypoints_fixed) * yaw
+
+            # Set up trajectory.
+            traj = MinSnap(
+                points=waypoints,
+                yaw_angles=yaw_angle,
                 v_max=15,
                 v_avg=v_avg,
                 v_start=[0, v_avg, 0],
@@ -422,7 +426,7 @@ def main():
     # concatenated_data["yaw"] = np.concatenate(
     #     [np.ones(100) * yaw for yaw in yaw_values]
     # )
-    save_to_csv(concatenated_data, f"sim_airdrag_yawmixed_4000_{current_time}.csv")
+    save_to_csv(concatenated_data, f"sim_airdrag_increase_waypt_{current_time}.csv")
 
     print("All simulations completed!")
 

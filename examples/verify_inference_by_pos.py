@@ -39,7 +39,7 @@ from scipy.spatial.transform import (
 import os  # For path generation
 
 
-class VerifyInference:
+class VerifyInferenceByPos:
     def __init__(self, pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot, fname):
         self.pos = pos.T
         self.vel = vel.T
@@ -143,8 +143,8 @@ if __name__ == "__main__":
     yaw = data[:, 15]
     yaw_dot = data[:, 16]
     yaw_ddot = data[:, 17]
-    # Create an instance of the VerifyInference class
-    inference_results = VerifyInference(
+    # Create an instance of the VerifyInferenceByPos class
+    inference_results = VerifyInferenceByPos(
         pos, vel, acc, jerk, snap, yaw, yaw_dot, yaw_ddot
     )
 

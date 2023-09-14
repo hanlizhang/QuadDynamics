@@ -20,6 +20,16 @@ from rotorpy.wind.default_winds import ConstantWind
 import numpy as np  # For array creation/manipulation
 import matplotlib.pyplot as plt  # For plotting, although the simulator has a built in plotter
 
+from rotorpy.trajectories.pos_traj import PosTraj
+from learning.trajgen import nonlinear_jax
+from scipy.signal import convolve
+
+
+def moving_average(data, window_size):
+    window = np.ones(window_size) / window_size
+    smoothed_data = np.convolve(data, window, mode="same")
+    return smoothed_data
+
 
 class VerifyInference:
     def __init__(
@@ -35,6 +45,8 @@ class VerifyInference:
         use_neural_network=False,
         regularizer=None,
         fname=None,
+        verify_by_pos=False,
+        trained_model_state=None,
     ):
         self.points = points
         self.yaw_angles = yaw_angles
@@ -47,6 +59,8 @@ class VerifyInference:
         self.use_neural_network = use_neural_network
         self.regularizer = regularizer
         self.fname = fname
+        self.verify_by_pos = verify_by_pos
+        self.trained_model_state = trained_model_state
 
     def run_simulation(self):
         # An instance of the simulator can be generated as follows:
@@ -61,6 +75,8 @@ class VerifyInference:
         use_neural_network = self.use_neural_network
         regularizer = self.regularizer
         fname = self.fname
+        verify_by_pos = self.verify_by_pos
+        trained_model_state = self.trained_model_state
 
         # change the drag coefficient by increasing it on only one axis.
         # quad_params["motor_noise_std"] = 0
@@ -71,6 +87,8 @@ class VerifyInference:
         # quad_params["c_Dx"] = 0
         # quad_params["c_Dy"] = 0
         # quad_params["c_Dz"] = 0
+        quad = Multirotor(quad_params)
+
         traj = MinSnap(
             points,
             yaw_angles,
@@ -83,7 +101,43 @@ class VerifyInference:
             use_neural_network=use_neural_network,
             regularizer=regularizer,
         )
-        quad = Multirotor(quad_params)
+
+        if verify_by_pos:
+            t_keyframes = traj.t_keyframes
+            N = 502
+            time = np.linspace(0, 1.1 * t_keyframes[-1], N)
+            flat_output = traj.evaluate_trajectory(time)
+            pos = flat_output[:, 0:3]
+            vel = flat_output[:, 3:6]
+            acc = flat_output[:, 6:9]
+            jerk = flat_output[:, 9:12]
+            snap = flat_output[:, 12:15]
+            yaw = flat_output[:, 15]
+            yaw_dot = flat_output[:, 16]
+            yaw_ddot = flat_output[:, 17]
+
+            # init_ref = np.vstack(pos, yaw)
+            for i in range(N):
+                if i == 0:
+                    init_ref = np.hstack((pos[i, :], yaw[i]))
+                else:
+                    init_ref = np.vstack((init_ref, np.hstack((pos[i, :], yaw[i]))))
+
+            aug_state = np.append(init_ref[0, :], init_ref)
+
+            new_ref = nonlinear_jax.modify_ref(aug_state, trained_model_state)
+
+            yaw_new = new_ref[7::4]
+            offset = 0
+            yaw_new = moving_average(yaw_new + offset, 5)
+            # get pos_new (x, y, z)
+            x_new = new_ref[0::4]
+            y_new = new_ref[1::4]
+            z_new = new_ref[2::4]
+            # pos_new = np.vstack((x_new, y_new, z_new)).T
+
+            # get new_ref from gradient descent
+            traj = PosTraj(pos, vel, acc, jerk, snap, yaw_new, yaw_dot, yaw_ddot)
 
         sim_instance = Environment(
             vehicle=quad,

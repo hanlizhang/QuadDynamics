@@ -192,11 +192,11 @@ def compute_tracking_error(ref_traj, actual_traj, input_traj, horizon, N, rho):
     xcost = []
     for i in range(num_traj):
         act = actual_traj[i * horizon : (i + 1) * horizon, :]
-        act = np.append(act, act[-1, :] * np.ones((N - 1, n)))
-        act = np.reshape(act, (horizon + N - 1, n))
+        # act = np.append(act, act[-1, :] * np.ones((N - 1, n)))
+        # act = np.reshape(act, (horizon + N - 1, n))
         r0 = ref_traj[i * horizon : (i + 1) * horizon, :]
-        r0 = np.append(r0, r0[-1, :] * np.ones((N - 1, n)))
-        r0 = np.reshape(r0, (horizon + N - 1, n))
+        # r0 = np.append(r0, r0[-1, :] * np.ones((N - 1, n)))
+        # r0 = np.reshape(r0, (horizon + N - 1, n))
 
         xcost.append(
             np.linalg.norm(act[:, :3] - r0[:, :3], axis=1) ** 2
@@ -213,7 +213,11 @@ def compute_tracking_error(ref_traj, actual_traj, input_traj, horizon, N, rho):
     return np.vstack(cost)
 
 
-# def input_traj_error(input_traj, input_traj_nn):
+def input_traj_error(input_traj, horizon):
+    for i in range(input_traj.shape[0]):
+        input_traj_error = 0.001 * (1 / horizon) * np.linalg.norm(input_traj[i]) ** 2
+    total_input_traj_error = np.sum(input_traj_error)
+    return total_input_traj_error
 
 
 def angle_wrap(theta):
@@ -454,7 +458,7 @@ def main():
 
     # vf = model.bind(trained_model_state.params)
 
-    desired_radius = 3.8
+    desired_radius = 3.5
     num_waypoints = 10
     desired_freq = 0.2
     v_avg = desired_radius * (desired_freq * 2 * np.pi)
@@ -466,7 +470,8 @@ def main():
         ]
     )
 
-    yaw_angles = np.ones(num_waypoints)
+    # yaw_angles = np.ones(num_waypoints)
+    yaw_angles = np.array([alpha for alpha in np.linspace(0, 2 * np.pi, num_waypoints)])
 
     # visualize the waypoints
     fig = plt.figure()
@@ -567,7 +572,11 @@ def main():
     # plt.show()
 
     print("cost_traj's shape", np.array(cost_traj_init_min_snap).shape)
-    print("init_min_snap", cost_traj_init_min_snap)
+    print("init_min_snap's tracking error", cost_traj_init_min_snap)
+    init_min_snap_input_traj_error = input_traj_error(
+        input_traj_init_min_snap, num_data
+    )
+    print("init_min_snap's input_traj_error", init_min_snap_input_traj_error)
 
     ## compute modified_true cost
     # Load the csv file
@@ -613,7 +622,65 @@ def main():
     plt.show()
 
     print("cost_traj's shape", np.array(cost_traj_modified).shape)
-    print("modified_true", cost_traj_modified)
+    print("modified_true's tracking error", cost_traj_modified)
+    modified_true_input_traj_error = input_traj_error(input_traj_modified, num_data)
+    print("modified_true's input_traj_error", modified_true_input_traj_error)
+
+    # plot the actual vs ref trajectory of x, y, z axis for 3 subplots in one plot over time to see if it's varying from the network
+    fig = plt.figure()
+    axes = fig.add_subplot(311)
+    axes.plot(times_init_min_snap, actual_traj_init_min_snap[:, 0], "b")
+    axes.plot(times_modified, actual_traj_modified[:, 0], "r")
+    # put legend
+    axes.legend(["actual_traj_init_min_snap", "actual_traj_modified"])
+    axes.set_xlabel("time")
+    axes.set_ylabel("x")
+    axes.set_title("actual x")
+    axes = fig.add_subplot(312)
+    axes.plot(times_init_min_snap, actual_traj_init_min_snap[:, 1], "b")
+    axes.plot(times_modified, actual_traj_modified[:, 1], "r")
+    # put legend
+    axes.legend(["actual_traj_init_min_snap", "actual_traj_modified"])
+    axes.set_xlabel("time")
+    axes.set_ylabel("y")
+    axes.set_title("actual y")
+    axes = fig.add_subplot(313)
+    axes.plot(times_init_min_snap, actual_traj_init_min_snap[:, 2], "b")
+    axes.plot(times_modified, actual_traj_modified[:, 2], "r")
+    # put legend
+    axes.legend(["actual_traj_init_min_snap", "actual_traj_modified"])
+    axes.set_xlabel("time")
+    axes.set_ylabel("z")
+    axes.set_title("actual z")
+    # plt.show()
+
+    # ref
+    fig = plt.figure()
+    axes = fig.add_subplot(311)
+    axes.plot(times_init_min_snap, ref_traj_init_min_snap[:, 0], "b")
+    axes.plot(times_modified, ref_traj_modified[:, 0], "r")
+    # put legend
+    axes.legend(["ref_traj_init_min_snap", "ref_traj_modified"])
+    axes.set_xlabel("time")
+    axes.set_ylabel("x")
+    axes.set_title("ref x")
+    axes = fig.add_subplot(312)
+    axes.plot(times_init_min_snap, ref_traj_init_min_snap[:, 1], "b")
+    axes.plot(times_modified, ref_traj_modified[:, 1], "r")
+    # put legend
+    axes.legend(["ref_traj_init_min_snap", "ref_traj_modified"])
+    axes.set_xlabel("time")
+    axes.set_ylabel("y")
+    axes.set_title("ref y")
+    axes = fig.add_subplot(313)
+    axes.plot(times_init_min_snap, ref_traj_init_min_snap[:, 2], "b")
+    axes.plot(times_modified, ref_traj_modified[:, 2], "r")
+    # put legend
+    axes.legend(["ref_traj_init_min_snap", "ref_traj_modified"])
+    axes.set_xlabel("time")
+    axes.set_ylabel("z")
+    axes.set_title("ref z")
+    plt.show()
 
     # plot the actual yaw angle over time to see if it's actually varying from the network
     fig = plt.figure()
@@ -649,7 +716,7 @@ def main():
     axes.plot(times_modified, yaw_ref_modified, "r")
     # print("yaw_ref_init_min_snap", yaw_ref_init_min_snap)
     # axis limits to be between 0 and 2pi
-    axes.set_ylim(0, 2 * np.pi)
+    # axes.set_ylim(0, 2 * np.pi)
     # put legend
     axes.legend(["yaw_ref_init_min_snap", "yaw_ref_modified"])
     axes.set_xlabel("time")

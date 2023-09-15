@@ -438,6 +438,7 @@ class MinSnap(object):
                 # print("byaw.shape: ", byaw.shape)
                 # print("b.shape: ", np.array(b).shape)
 
+                """
                 nn_coeff = nonlinear.generate(
                     torch.tensor(waypoints),
                     self.t_keyframes,
@@ -448,8 +449,9 @@ class MinSnap(object):
                     regularizer,
                     torch.tensor(min_snap_coeffs),
                 )
-
-                """nn_coeff, pred = nonlinear_jax.modify_reference(
+                """
+                ### minsnap ######## jax  ####
+                nn_coeff, pred = nonlinear_jax.modify_reference(
                     waypoints,
                     self.t_keyframes,
                     502,
@@ -459,8 +461,12 @@ class MinSnap(object):
                     H,
                     A,
                     b,
-                    coeffs,
+                    min_snap_coeffs,
                 )
+                ### minsnap ######## jax  ####
+
+                ### minsnap ######## torch  ####
+                # nn_coeff, pred = nonlinear.modify_reference(
                 c_opt_x = nn_coeff[0 : ((poly_degree + 1) * m)]
                 c_opt_y = nn_coeff[
                     ((poly_degree + 1) * m) : (2 * (poly_degree + 1) * m)
@@ -468,7 +474,7 @@ class MinSnap(object):
                 c_opt_z = nn_coeff[
                     (2 * (poly_degree + 1) * m) : (3 * (poly_degree + 1) * m)
                 ]
-                c_opt_yaw = nn_coeff[(3 * (poly_degree + 1) * m) :]"""
+                c_opt_yaw = nn_coeff[(3 * (poly_degree + 1) * m) :]
                 for i in range(m):
                     for j in range(3):
                         self.x_poly[i, j, :] = nn_coeff[j, i, :]

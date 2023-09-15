@@ -28,10 +28,10 @@ import jax.numpy as jnp
 from torch.utils.data import Dataset
 import torch
 
-# from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 
-# writer = SummaryWriter()
+writer = SummaryWriter()
 
 
 class TrajDataset(Dataset):
@@ -118,7 +118,7 @@ def train_model(state, data_loader, num_epochs=100):
             # We could use the loss and accuracy for logging here, e.g. in TensorBoard
             # For simplicity, we skip this part here
             epoch_loss += loss
-            # writer.add_scalar('Train loss', np.array(epoch_loss), count)
+            writer.add_scalar("Train loss", np.array(epoch_loss), count)
     return state
 
 
@@ -130,7 +130,7 @@ def eval_model(state, data_loader, batch_size):
         batch_sizes.append(batch[0].shape[0])
     # Weighted average since some batches might be smaller
     loss = sum([a * b for a, b in zip(all_losses, batch_sizes)]) / sum(batch_sizes)
-    # writer.add_scalar('Train batch loss', np.array(loss), count)
+    # writer.add_scalar("Train batch loss", np.array(loss), count)
     print(f"Loss of the model: {loss:4.2f}")
 
 

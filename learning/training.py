@@ -137,11 +137,11 @@ def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho
     xcost = []
     for i in range(num_traj):
         act = actual_traj[i * horizon : (i + 1) * horizon, :]
-        act = np.append(act, act[-1, :] * np.ones((N - 1, n)))
-        act = np.reshape(act, (horizon + N - 1, n))
+        # act = np.append(act, act[-1, :] * np.ones((N - 1, n)))
+        # act = np.reshape(act, (horizon + N - 1, n))
         r0 = ref_traj[i * horizon : (i + 1) * horizon, :]
-        r0 = np.append(r0, r0[-1, :] * np.ones((N - 1, n)))
-        r0 = np.reshape(r0, (horizon + N - 1, n))
+        # r0 = np.append(r0, r0[-1, :] * np.ones((N - 1, n)))
+        # r0 = np.reshape(r0, (horizon + N - 1, n))
         distances = np.linalg.norm(np.diff(r0[:horizon, :3], axis=0), axis=1)
         unit_vec = np.zeros((horizon - 1, 3))
 
@@ -163,13 +163,12 @@ def compute_cum_tracking_cost(ref_traj, actual_traj, input_traj, horizon, N, rho
         xcost.append(
             rho
             * (
-                np.linalg.norm(act[:, :3] - r0[:, :3], axis=1)
-                ** 2
-                # + angle_wrap(act[:, 3] - r0[:, 3]) ** 2
+                np.linalg.norm(act[:, :3] - r0[:, :3], axis=1) ** 2
+                + angle_wrap(act[:, 3] - r0[:, 3]) ** 2
                 # ignore the yaw error
             )
             # input_traj cost is sum of squares of motor speeds for 4 individual motors
-            # + 0.001 * (1 / horizon) * np.linalg.norm(input_traj[i]) ** 2
+            + 0.001 * (1 / horizon) * np.linalg.norm(input_traj[i]) ** 2
             # + np.linalg.norm(input_traj[i]) ** 2  # Removed 0.1 multiplier
         )
         # print("cost for the input_traj: ", np.linalg.norm(input_traj[i]))

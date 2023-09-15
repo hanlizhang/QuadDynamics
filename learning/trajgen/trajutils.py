@@ -43,7 +43,7 @@ def _cost_matrix(n, k, T):
             #print(H[i, j].shape)
             #print(Hij_ln.shape)
             #print(T.shape)
-            H[i, j] = jnp.exp(Hij_ln + jnp.log(T) * power)
-            # H = H.at[i, j].set(np.exp(Hij_ln + np.log(T) * power))
+            # H[i, j] = jnp.exp(Hij_ln + jnp.log(T) * power)
+            H = H.at[i, j].set(jnp.exp(Hij_ln + jnp.log(T) * power))
     return jnp.array(H)
 

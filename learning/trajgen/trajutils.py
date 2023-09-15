@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 # import scipy.special as sps
 import jax.scipy.special as sps
-# import numpy as np
+import numpy as np
 
 def _diff_coeff(n, t, dx_order):
     ''' Returns a vector v whose inner product with the coefficients
@@ -44,6 +44,6 @@ def _cost_matrix(n, k, T):
             #print(Hij_ln.shape)
             #print(T.shape)
             # H[i, j] = jnp.exp(Hij_ln + jnp.log(T) * power)
-            H = H.at[i, j].set(jnp.exp(Hij_ln + jnp.log(T) * power))
+            H = H.at[i, j].set(np.exp(Hij_ln + jnp.log(T) * power))
     return jnp.array(H)
 

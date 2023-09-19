@@ -251,7 +251,7 @@ def main():
 
     # Loop through each radius and generate the circular trajectory simulation
     idx = 0
-    for radius in np.linspace(3, 4.5, 2000):
+    for radius in np.linspace(3, 4.5, 5000):
         idx = idx + 1
         print(f"Running simulation for circular trajectory {idx} with radius {radius}")
 
@@ -422,7 +422,7 @@ def main():
     # concatenated_data["yaw"] = np.concatenate(
     #     [np.ones(100) * yaw for yaw in yaw_values]
     # )
-    save_to_csv(concatenated_data, f"sim_airdrag_yawmixed_4000_{current_time}.csv")
+    save_to_csv(concatenated_data, f"sim_airdrag_yawmixed_10000_{current_time}.csv")
 
     print("All simulations completed!")
 

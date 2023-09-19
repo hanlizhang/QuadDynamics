@@ -196,7 +196,7 @@ def angle_wrap(theta):
 
 def main():
     horizon = 502
-    rho = 15
+    rho = 0.1
 
     rhos = [0, 1, 5, 10, 20, 50, 100]
     gamma = 1

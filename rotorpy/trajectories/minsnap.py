@@ -361,43 +361,43 @@ class MinSnap(object):
             c_opt_yaw = cvxopt_solve_qp(P_yaw, q=q_yaw, G=Gyaw, h=hyaw, A=Ayaw, b=byaw)
             # c_opt_yaw = np.zeros((yaw_poly_degree + 1) * m)
 
-            ################## Construct polynomials from c_opt
-            self.x_poly = np.zeros((m, 3, (poly_degree + 1)))
-            self.yaw_poly = np.zeros((m, 1, (yaw_poly_degree + 1)))
-            for i in range(m):
-                self.x_poly[i, 0, :] = np.flip(
-                    c_opt_x[
-                        (poly_degree + 1)
-                        * i : ((poly_degree + 1) * i + (poly_degree + 1))
-                    ]
-                )
-                self.x_poly[i, 1, :] = np.flip(
-                    c_opt_y[
-                        (poly_degree + 1)
-                        * i : ((poly_degree + 1) * i + (poly_degree + 1))
-                    ]
-                )
-                self.x_poly[i, 2, :] = np.flip(
-                    c_opt_z[
-                        (poly_degree + 1)
-                        * i : ((poly_degree + 1) * i + (poly_degree + 1))
-                    ]
-                )
-                self.yaw_poly[i, 0, :] = np.flip(
-                    c_opt_yaw[
-                        (yaw_poly_degree + 1)
-                        * i : ((yaw_poly_degree + 1) * i + (yaw_poly_degree + 1))
-                    ]
-                )
+            # ################## Construct polynomials from c_opt
+            # self.x_poly = np.zeros((m, 3, (poly_degree + 1)))
+            # self.yaw_poly = np.zeros((m, 1, (yaw_poly_degree + 1)))
+            # for i in range(m):
+            #     self.x_poly[i, 0, :] = np.flip(
+            #         c_opt_x[
+            #             (poly_degree + 1)
+            #             * i : ((poly_degree + 1) * i + (poly_degree + 1))
+            #         ]
+            #     )
+            #     self.x_poly[i, 1, :] = np.flip(
+            #         c_opt_y[
+            #             (poly_degree + 1)
+            #             * i : ((poly_degree + 1) * i + (poly_degree + 1))
+            #         ]
+            #     )
+            #     self.x_poly[i, 2, :] = np.flip(
+            #         c_opt_z[
+            #             (poly_degree + 1)
+            #             * i : ((poly_degree + 1) * i + (poly_degree + 1))
+            #         ]
+            #     )
+            #     self.yaw_poly[i, 0, :] = np.flip(
+            #         c_opt_yaw[
+            #             (yaw_poly_degree + 1)
+            #             * i : ((yaw_poly_degree + 1) * i + (yaw_poly_degree + 1))
+            #         ]
+            #     )
 
             # call modify_reference directly after computing the min snap coeffs and use the returned coeffs in the rest of the class
             if use_neural_network:
-                min_snap_coeffs = np.zeros((4, m, poly_degree + 1))
-                for i in range(m):
-                    for j in range(3):
-                        min_snap_coeffs[j, i, :] = self.x_poly[i, j, :]
-                    min_snap_coeffs[3, i, :] = self.yaw_poly[i, 0, :]
-                # coeffs = np.concatenate([c_opt_x, c_opt_y, c_opt_z, c_opt_yaw])
+                # min_snap_coeffs = np.zeros((4, m, poly_degree + 1))
+                # for i in range(m):
+                #     for j in range(3):
+                #         min_snap_coeffs[j, i, :] = self.x_poly[i, j, :]
+                #     min_snap_coeffs[3, i, :] = self.yaw_poly[i, 0, :]
+                min_snap_coeffs = np.concatenate([c_opt_x, c_opt_y, c_opt_z, c_opt_yaw])
                 # coeffs = np.zeros([4 * (poly_degree + 1) * m])
                 # Get the coefficients from the neural network
                 # from x_poly(segment, axis, coeff) and yaw_poly(segment, 1, coeff) to min_snap_coeffs(4, segment, coeff)
@@ -475,10 +475,43 @@ class MinSnap(object):
                     (2 * (poly_degree + 1) * m) : (3 * (poly_degree + 1) * m)
                 ]
                 c_opt_yaw = nn_coeff[(3 * (poly_degree + 1) * m) :]
-                for i in range(m):
-                    for j in range(3):
-                        self.x_poly[i, j, :] = nn_coeff[j, i, :]
-                    self.yaw_poly[i, 0, :] = nn_coeff[3, i, :]
+                # for i in range(m):
+                #     for j in range(3):
+                #         # nn_coeff is a 1d array, transform it to 3d array
+                #         nn_coeff = nn_coeff.reshape(4, m, poly_degree + 1)
+                #         # print("nn_coeff first 8", nn_coeff[0, 0, :])
+                #         # self.x_poly[i, j, :] = nn_coeff[j * (poly_degree + 1) + i, :]
+                #         self.x_poly[i, j, :] = nn_coeff[j, i, :]
+                #     self.yaw_poly[i, 0, :] = nn_coeff[3, i, :]
+                # self.yaw_poly[i, 0, :] = nn_coeff[3 * (poly_degree + 1) + i, :]
+            ################## Construct polynomials from c_opt
+            self.x_poly = np.zeros((m, 3, (poly_degree + 1)))
+            self.yaw_poly = np.zeros((m, 1, (yaw_poly_degree + 1)))
+            for i in range(m):
+                self.x_poly[i, 0, :] = np.flip(
+                    c_opt_x[
+                        (poly_degree + 1)
+                        * i : ((poly_degree + 1) * i + (poly_degree + 1))
+                    ]
+                )
+                self.x_poly[i, 1, :] = np.flip(
+                    c_opt_y[
+                        (poly_degree + 1)
+                        * i : ((poly_degree + 1) * i + (poly_degree + 1))
+                    ]
+                )
+                self.x_poly[i, 2, :] = np.flip(
+                    c_opt_z[
+                        (poly_degree + 1)
+                        * i : ((poly_degree + 1) * i + (poly_degree + 1))
+                    ]
+                )
+                self.yaw_poly[i, 0, :] = np.flip(
+                    c_opt_yaw[
+                        (yaw_poly_degree + 1)
+                        * i : ((yaw_poly_degree + 1) * i + (yaw_poly_degree + 1))
+                    ]
+                )
 
             for i in range(m):
                 for j in range(3):

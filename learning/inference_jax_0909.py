@@ -448,17 +448,17 @@ def main():
 
     trained_model_state = restore_checkpoint(model_state, model_save)
 
-    mlp_t = load_torch_model(trained_model_state, input_size, num_hidden)
+    # mlp_t = load_torch_model(trained_model_state, input_size, num_hidden)
 
-    print(mlp_t)
+    # print(mlp_t)
 
-    vf = valuefunc.MLPValueFunc(mlp_t)
+    # vf = valuefunc.MLPValueFunc(mlp_t)
 
-    vf.network = mlp_t
+    # vf.network = mlp_t
 
-    # vf = model.bind(trained_model_state.params)
+    vf = model.bind(trained_model_state.params)
 
-    desired_radius = 3.5
+    desired_radius = 4
     num_waypoints = 10
     desired_freq = 0.2
     v_avg = desired_radius * (desired_freq * 2 * np.pi)
@@ -469,9 +469,16 @@ def main():
             for alpha in np.linspace(0, 2 * np.pi, num_waypoints)
         ]
     )
-
-    # yaw_angles = np.ones(num_waypoints)
-    yaw_angles = np.array([alpha for alpha in np.linspace(0, 2 * np.pi, num_waypoints)])
+    align = False
+    if align:
+        yaw_angles_file = "align"
+        yaw_angles = np.array(
+            [alpha for alpha in np.linspace(0, 2 * np.pi, num_waypoints)]
+        )
+    else:
+        yaw_angles_file = "yaw1"
+        yaw_angles = np.ones(num_waypoints)
+    # yaw_angles = np.array([alpha for alpha in np.linspace(0, 2 * np.pi, num_waypoints)])
 
     # visualize the waypoints
     fig = plt.figure()
@@ -488,7 +495,7 @@ def main():
     plt.show()
 
     # generate min_snap trajectory and run simulation
-    fname_minsnap = f"min_snap_init_{rho}"
+    fname_minsnap = f"reftraj_init_minsnap_{rho}"
 
     init_inference_results = VerifyInference(
         waypoints,
@@ -507,7 +514,7 @@ def main():
     init_inference_results.run_simulation()
 
     # generate nn trajectory and run simulation
-    fname_nn = f"nn_modified_{rho}"
+    fname_nn = f"reftraj_modified_by_nn_{rho}"
 
     modified_inference_results = VerifyInference(
         waypoints,
@@ -567,9 +574,21 @@ def main():
     axes.set_xlabel("x")
     axes.set_ylabel("y")
     axes.set_zlabel("z")
-    title = "ref=min_snap"
+    title = "reftraj_init_minsnap"
     axes.set_title(title)
     # plt.show()
+    # save the figure
+    # fig.savefig(
+    #     "/home/mrsl_guest/result_plots/"
+    #     + fname_minsnap
+    #     + "_"
+    #     + desired_radius
+    #     + "_"
+    #     + str(num_waypoints)
+    #     + "_"
+    #     + yaw_angles_file
+    #     + ".png"
+    # )
 
     print("cost_traj's shape", np.array(cost_traj_init_min_snap).shape)
     print("init_min_snap's tracking error", cost_traj_init_min_snap)
@@ -617,9 +636,20 @@ def main():
     axes.set_xlabel("x")
     axes.set_ylabel("y")
     axes.set_zlabel("z")
-    title = "ref=nn_coeff"
+    title = "reftraj_modified_by_nn"
     axes.set_title(title)
     plt.show()
+    # fig.savefig(
+    #     "/home/mrsl_guest/result_plots/"
+    #     + fname_nn
+    #     + "_"
+    #     + desired_radius
+    #     + "_"
+    #     + str(num_waypoints)
+    #     + "_"
+    #     + yaw_angles_file
+    #     + ".png"
+    # )
 
     print("cost_traj's shape", np.array(cost_traj_modified).shape)
     print("modified_true's tracking error", cost_traj_modified)
@@ -628,7 +658,7 @@ def main():
 
     # plot the actual vs ref trajectory of x, y, z axis for 3 subplots in one plot over time to see if it's varying from the network
     fig = plt.figure()
-    axes = fig.add_subplot(311)
+    axes = fig.add_subplot(411)
     axes.plot(times_init_min_snap, actual_traj_init_min_snap[:, 0], "b")
     axes.plot(times_modified, actual_traj_modified[:, 0], "r")
     # put legend
@@ -636,7 +666,7 @@ def main():
     axes.set_xlabel("time")
     axes.set_ylabel("x")
     axes.set_title("actual x")
-    axes = fig.add_subplot(312)
+    axes = fig.add_subplot(412)
     axes.plot(times_init_min_snap, actual_traj_init_min_snap[:, 1], "b")
     axes.plot(times_modified, actual_traj_modified[:, 1], "r")
     # put legend
@@ -644,7 +674,7 @@ def main():
     axes.set_xlabel("time")
     axes.set_ylabel("y")
     axes.set_title("actual y")
-    axes = fig.add_subplot(313)
+    axes = fig.add_subplot(413)
     axes.plot(times_init_min_snap, actual_traj_init_min_snap[:, 2], "b")
     axes.plot(times_modified, actual_traj_modified[:, 2], "r")
     # put legend
@@ -652,11 +682,32 @@ def main():
     axes.set_xlabel("time")
     axes.set_ylabel("z")
     axes.set_title("actual z")
+    # actual yaw
+    axes = fig.add_subplot(414)
+    axes.plot(times_init_min_snap, actual_traj_init_min_snap[:, 3], "b")
+    axes.plot(times_modified, actual_traj_modified[:, 3], "r")
+    # put legend
+    axes.legend(["actual_traj_init_min_snap", "actual_traj_modified"])
+    axes.set_xlabel("time")
+    axes.set_ylabel("yaw")
+    axes.set_title("actual yaw")
     # plt.show()
+    # save_name = (
+    #     "/home/mrsl_guest/result_plots/"
+    #     + "init_modified_actual_traj_for_axis"
+    #     + "_"
+    #     + desired_radius
+    #     + "_"
+    #     + str(num_waypoints)
+    #     + "_"
+    #     + yaw_angles_file
+    #     + ".png"
+    # )
+    # fig.savefig(save_name)
 
     # ref
     fig = plt.figure()
-    axes = fig.add_subplot(311)
+    axes = fig.add_subplot(411)
     axes.plot(times_init_min_snap, ref_traj_init_min_snap[:, 0], "b")
     axes.plot(times_modified, ref_traj_modified[:, 0], "r")
     # put legend
@@ -664,7 +715,7 @@ def main():
     axes.set_xlabel("time")
     axes.set_ylabel("x")
     axes.set_title("ref x")
-    axes = fig.add_subplot(312)
+    axes = fig.add_subplot(412)
     axes.plot(times_init_min_snap, ref_traj_init_min_snap[:, 1], "b")
     axes.plot(times_modified, ref_traj_modified[:, 1], "r")
     # put legend
@@ -672,7 +723,7 @@ def main():
     axes.set_xlabel("time")
     axes.set_ylabel("y")
     axes.set_title("ref y")
-    axes = fig.add_subplot(313)
+    axes = fig.add_subplot(413)
     axes.plot(times_init_min_snap, ref_traj_init_min_snap[:, 2], "b")
     axes.plot(times_modified, ref_traj_modified[:, 2], "r")
     # put legend
@@ -680,8 +731,29 @@ def main():
     axes.set_xlabel("time")
     axes.set_ylabel("z")
     axes.set_title("ref z")
+    # ref yaw
+    axes = fig.add_subplot(414)
+    axes.plot(times_init_min_snap, ref_traj_init_min_snap[:, 3], "b")
+    axes.plot(times_modified, ref_traj_modified[:, 3], "r")
+    # put legend
+    axes.legend(["ref_traj_init_min_snap", "ref_traj_modified"])
+    axes.set_xlabel("time")
+    axes.set_ylabel("yaw")
+    axes.set_title("ref yaw")
     plt.show()
-
+    # save_name = (
+    #     "/home/mrsl_guest/result_plots/"
+    #     + "init_modified_ref_traj_for_axis"
+    #     + "_"
+    #     + desired_radius
+    #     + "_"
+    #     + str(num_waypoints)
+    #     + "_"
+    #     + yaw_angles_file
+    #     + ".png"
+    # )
+    # fig.savefig(save_name)
+    """
     # plot the actual yaw angle over time to see if it's actually varying from the network
     fig = plt.figure()
     axes = fig.add_subplot(111)
@@ -723,6 +795,7 @@ def main():
     axes.set_ylabel("yaw")
     axes.set_title("yaw_ref")
     plt.show()
+    """
 
 
 if __name__ == "__main__":

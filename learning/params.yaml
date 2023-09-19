@@ -1,5 +1,5 @@
 num_hidden: [500, 400, 200]
 batch_size: 64
-learning_rate: 0.005
+learning_rate: 0.001
 num_epochs: 2000
 save_path: "/home/mrsl_guest/rho-"

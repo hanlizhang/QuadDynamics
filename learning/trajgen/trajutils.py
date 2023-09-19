@@ -1,7 +1,9 @@
 import jax.numpy as jnp
+
 # import scipy.special as sps
 import jax.scipy.special as sps
 import numpy as np
+
 
 def _diff_coeff(n, t, dx_order):
     """Returns a vector v whose inner product with the coefficients
@@ -36,15 +38,15 @@ def _cost_matrix(n, k, T):
         - k: order of derivative that we integrate over
     Return:
         - H: cost matrix
-    '''
-    H = jnp.zeros((n+1, n+1))
-    for i in range(n-k+1):
-        for j in range(n-k+1):
-            power = 2*n-2*k-i-j+1
-            Hij_ln = _facln(n-i, k) + _facln(n-j, k) - jnp.log(power)
-            #print(H[i, j].shape)
-            #print(Hij_ln.shape)
-            #print(T.shape)
+    """
+    H = jnp.zeros((n + 1, n + 1))
+    for i in range(n - k + 1):
+        for j in range(n - k + 1):
+            power = 2 * n - 2 * k - i - j + 1
+            Hij_ln = _facln(n - i, k) + _facln(n - j, k) - np.log(power)
+            # print(H[i, j].shape)
+            # print(Hij_ln.shape)
+            # print(T.shape)
             # H[i, j] = jnp.exp(Hij_ln + jnp.log(T) * power)
-            H = H.at[i, j].set(np.exp(Hij_ln + jnp.log(T) * power))
+            H = H.at[i, j].set(np.exp(Hij_ln + np.log(T) * power))
     return jnp.array(H)

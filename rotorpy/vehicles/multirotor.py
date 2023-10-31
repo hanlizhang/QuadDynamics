@@ -40,6 +40,12 @@ class Multirotor(object):
                                             'w': np.zeros(3,),
                                             'wind': np.array([0,0,0]),  # Since wind is handled elsewhere, this value is overwritten
                                             'rotor_speeds': np.array([1788.53, 1788.53, 1788.53, 1788.53])},
+                control_abstraction="MS",
+                                # The control abstraction defines what control inputs are sent to the dynamics. 
+                                #  MS -- Motor speeds, the controller directly commands motor speeds. 
+                                #  TRPY -- The controller commands thrust, roll, pitch, and yaw. Lower level controllers track these commands. 
+                                #  CTBR -- The controller commands thrust and body rates. Lower level controllers track these commands. 
+                                #  W -- The controller commands a wrench, lower level controllers track this wrench. 
                 ):
         """
         Initialize quadrotor physical parameters.
@@ -98,6 +104,18 @@ class Multirotor(object):
         # Set the initial state
         self.initial_state = initial_state
 
+        # Set the control abstraction
+
+        if control_abstraction not in ['MS', 'TRPY', 'CTBR', 'W']:
+            raise ValueError("Control abstraction not available. Did you mean 'MS', 'TRPY', 'CTBR', or 'W'? ")
+
+        self.control_abstraction = control_abstraction
+
+        # Get control mappings
+        k = self.k_m/self.k_eta
+        self.f_to_TM = np.vstack((np.ones((1,self.num_rotors)),np.hstack([np.cross(self.rotor_pos[key],np.array([0,0,1])).reshape(-1,1)[0:2] for key in self.rotor_pos]), np.array([k*(-1)**i for i in range(self.num_rotors)]).reshape(1,-1)))
+        self.TM_to_f = np.linalg.inv(self.f_to_TM)
+
     def extract_geometry(self):
         """
         Extracts the geometry in self.rotors for efficient use later on in the computation of 
@@ -113,10 +131,15 @@ class Multirotor(object):
 
         return
 
-    def statedot(self, state, cmd_rotor_speeds, t_step):
+    def statedot(self, state, control, t_step):
         """
         Integrate dynamics forward from state given constant cmd_rotor_speeds for time t_step.
+        Inputs:
+            state: the current state of the quadrotor.
+            control: the control, depends on the mode. 
         """
+
+        cmd_rotor_speeds = self.compute_cmd_motor_speeds(state, control)
 
         # The true motor speeds can not fall below min and max speeds.
         cmd_rotor_speeds = np.clip(cmd_rotor_speeds, self.rotor_speed_min, self.rotor_speed_max)
@@ -134,10 +157,12 @@ class Multirotor(object):
         return state_dot 
 
 
-    def step(self, state, cmd_rotor_speeds, t_step):
+    def step(self, state, control, t_step):
         """
         Integrate dynamics forward from state given constant cmd_rotor_speeds for time t_step.
         """
+
+        cmd_rotor_speeds = self.compute_cmd_motor_speeds(state, control)
 
         # The true motor speeds can not fall below min and max speeds.
         cmd_rotor_speeds = np.clip(cmd_rotor_speeds, self.rotor_speed_min, self.rotor_speed_max)
@@ -255,6 +280,37 @@ class Multirotor(object):
         FtotB += D
 
         return (FtotB, MtotB)
+
+    def compute_cmd_motor_speeds(self, state, control):
+        """
+        Computes the command motor speeds depending on the control abstraction.
+
+        """
+
+        if self.control_abstraction == 'MS':
+            return control['cmd_motor_speeds']
+
+        elif self.control_abstraction == 'W':
+            # Extract the collective thrust and moment from the controller
+            cmd_thrust = control['cmd_thrust']
+            cmd_moment = control['cmd_moment']
+
+            # Convert thrust and moment to individual rotor thrusts using the thrust mapping. 
+            cmd_motor_forces = self.TM_to_f @ np.array([cmd_thrust, cmd_moment[0], cmd_moment[1], cmd_moment[2]])
+            
+            # Now get rotor speeds using thrust coefficient. 
+            cmd_motor_speeds = cmd_motor_forces / self.k_eta
+            return np.sign(cmd_motor_speeds) * np.sqrt(np.abs(cmd_motor_speeds))
+
+        else:
+            raise NotImplementedError("Other control abstractions not yet implemented.")
+
+    def set_lowerlevel_gains(self):
+        """ 
+        Sets the gains for lower level controllers where applicable.
+        """
+
+        return 
 
     @classmethod
     def rotate_k(cls, q):

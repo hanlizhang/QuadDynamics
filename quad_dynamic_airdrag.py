@@ -18,7 +18,7 @@ from mpl_toolkits.mplot3d import Axes3D
 
 # global parameters for trajectory optimization
 horizon = 20
-dt = 0.1
+dt = 0.05
 eq_point = jnp.array([3, 2, 1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
 # quadrotor physical constants

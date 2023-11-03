@@ -353,9 +353,10 @@ class ADMMTraj(object):
         # print(t_index)
         if t_index > self.horizon - 1:
             u_t = self.u_k[:, -1]
+            x_t = self.x_k[:, -1]
         else:
             u_t = self.u_k[:, t_index]
-        x_t = self.x_k[:, t_index]
+            x_t = self.x_k[:, t_index]
         # u_t = self.u_k[:, t_index]
         print("t_index:", t_index)
         flat_output = {
